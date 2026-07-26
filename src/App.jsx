@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { clearSavedProgress, loadSavedProgress, saveProgress } from "./saveGame";
 
 const TICK_MS = 100;
 const SEC_PER_TICK = 3;
@@ -867,6 +868,7 @@ const newGame = (modeId = "short", levelId = "student") => {
 
 export default function NightShiftER() {
   const [g, setG] = useState({ phase: "title" });
+  const [saveError, setSaveError] = useState("");
   const intervalRef = useRef(null);
 
   useEffect(() => {
@@ -874,6 +876,12 @@ export default function NightShiftER() {
     intervalRef.current = setInterval(() => setG((prev) => tick(prev)), TICK_MS);
     return () => clearInterval(intervalRef.current);
   }, [g.phase]);
+
+  useEffect(() => {
+    if (g.modeId === "full" && (g.phase === "end" || g.phase === "over")) {
+      clearSavedProgress();
+    }
+  }, [g.modeId, g.phase]);
 
   const tick = (s) => {
     if (s.phase !== "play") return s;
@@ -938,8 +946,39 @@ export default function NightShiftER() {
     return n;
   };
 
-  const start = (modeId, levelId) => setG(newGame(modeId, levelId));
-  const retry = () => setG(newGame(g.modeId ?? "short", g.levelId ?? "student"));
+  const start = (modeId, levelId) => {
+    if (modeId === "full") clearSavedProgress();
+    setSaveError("");
+    setG(newGame(modeId, levelId));
+  };
+  const resumeSavedGame = (savedGame) => {
+    setSaveError("");
+    setG({ ...savedGame, phase: "play", fx: null });
+  };
+  const retry = () => start(g.modeId ?? "short", g.levelId ?? "student");
+  const pause = () => {
+    if (g.modeId === "full" && g.phase === "play") {
+      setSaveError("");
+      setG((s) => ({ ...s, phase: "paused" }));
+    }
+  };
+  const continueShift = () => {
+    setSaveError("");
+    setG((s) => ({ ...s, phase: "play" }));
+  };
+  const saveAndReturn = () => {
+    if (saveProgress(g)) {
+      setSaveError("");
+      setG({ phase: "title" });
+    } else {
+      setSaveError("進捗を保存できませんでした。ブラウザのストレージ設定をご確認ください。");
+    }
+  };
+  const quitShift = () => {
+    clearSavedProgress();
+    setSaveError("");
+    setG({ phase: "title" });
+  };
   const accept = (bedIdx) => setG((s) => {
     if (!s.incoming || s.beds[bedIdx]) return s;
     const c = (CASE_LEVELS[s.levelId] ?? CASE_LEVELS.student).cases[s.incoming.caseIdx];
@@ -972,7 +1011,7 @@ export default function NightShiftER() {
     return { ...s, beds };
   });
 
-  if (g.phase === "title") return <TitleScreen onStart={start} />;
+  if (g.phase === "title") return <TitleScreen onStart={start} onResume={resumeSavedGame} />;
   if (g.phase === "over") return <ResultScreen g={g} fired onRetry={retry} />;
   if (g.phase === "end") return <ResultScreen g={g} onRetry={retry} />;
 
@@ -998,10 +1037,30 @@ export default function NightShiftER() {
             </div>
           </div>
         </div>
-        <div className="mt-1.5 h-1 bg-slate-800 rounded-full overflow-hidden">
-          <div className="h-full bg-emerald-500/70" style={{ width: `${(g.t / g.shiftSec) * 100}%` }} />
+        <div className="mt-1.5 flex items-center gap-2">
+          <div className="h-1 flex-1 bg-slate-800 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-500/70" style={{ width: `${(g.t / g.shiftSec) * 100}%` }} />
+          </div>
+          {g.modeId === "full" && (
+            <button
+              type="button"
+              onClick={pause}
+              className="shrink-0 rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-300 hover:border-amber-500 hover:text-amber-300 transition"
+            >
+              ⏸ 一時停止
+            </button>
+          )}
         </div>
       </header>
+      {g.phase === "paused" && (
+        <PauseMenu
+          g={g}
+          error={saveError}
+          onContinue={continueShift}
+          onSave={saveAndReturn}
+          onQuit={quitShift}
+        />
+      )}
       {g.fx && g.t < g.fx.until && <FxOverlay fx={g.fx} />}
       {g.incoming && <IncomingBanner incoming={g.incoming} t={g.t} beds={g.beds} cases={(CASE_LEVELS[g.levelId] ?? CASE_LEVELS.student).cases} onAccept={accept} onRefuse={refuse} />}
       <div className="grid grid-cols-4 gap-1.5 px-2 pt-2">
@@ -1039,6 +1098,72 @@ function GlobalStyles() {
     .amb-run2 { animation-delay: 1.3s; }
     @media (prefers-reduced-motion: reduce) { .ecg-line,.pulse-soft,.fx-pop,.fx-shake,.fx-bg,.fx-line,.amb-run { animation: none !important; } }
   `}</style>;
+}
+function PauseMenu({ g, error, onContinue, onSave, onQuit }) {
+  const progress = Math.round((g.t / g.shiftSec) * 100);
+  const occupied = g.beds.filter(Boolean).length;
+  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/90 px-5 backdrop-blur-sm">
+    <div className="w-full max-w-sm rounded-2xl border border-amber-500/40 bg-slate-900 p-5 shadow-2xl shadow-black/60">
+      <div className="text-center">
+        <div className="text-4xl">⏸️</div>
+        <h2 className="mt-2 text-xl font-black text-amber-300">フル当直を一時停止中</h2>
+        <p className="mt-1 text-xs text-slate-400">停止中は院内時計・処置・急変タイマーも進みません。</p>
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <PauseStat label="院内時刻" value={fmtClock(g.t, g.shiftStartMin)} />
+        <PauseStat label="進行度" value={`${progress}%`} />
+        <PauseStat label="入院中" value={`${occupied}床`} />
+      </div>
+      {error && <div className="mt-3 rounded-lg border border-rose-700 bg-rose-950/60 p-2 text-xs text-rose-200">{error}</div>}
+      <div className="mt-5 space-y-2">
+        <PauseButton
+          icon="▶️"
+          title="当直を続ける"
+          description="一時停止したところから、そのまま再開します"
+          onClick={onContinue}
+          tone="continue"
+        />
+        <PauseButton
+          icon="💾"
+          title="セーブして戻る"
+          description="この端末のブラウザに保存してタイトルへ戻ります"
+          onClick={onSave}
+          tone="save"
+        />
+        <PauseButton
+          icon="⏹️"
+          title="終了する"
+          description="現在の進捗を破棄してタイトルへ戻ります"
+          onClick={onQuit}
+          tone="quit"
+        />
+      </div>
+    </div>
+  </div>;
+}
+function PauseStat({ label, value }) {
+  return <div className="rounded-lg bg-slate-950 px-2 py-2 text-center">
+    <div className="text-[9px] text-slate-500">{label}</div>
+    <div className="mt-0.5 font-mono text-sm font-bold text-slate-200">{value}</div>
+  </div>;
+}
+function PauseButton({ icon, title, description, onClick, tone }) {
+  const colors = {
+    continue: "border-emerald-600/60 bg-emerald-950/40 hover:bg-emerald-900/60",
+    save: "border-sky-600/60 bg-sky-950/40 hover:bg-sky-900/60",
+    quit: "border-rose-800/60 bg-rose-950/30 hover:bg-rose-900/50",
+  };
+  return <button
+    type="button"
+    onClick={onClick}
+    className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition active:scale-[0.99] ${colors[tone]}`}
+  >
+    <span className="text-xl">{icon}</span>
+    <span>
+      <span className="block text-sm font-bold text-slate-100">{title}</span>
+      <span className="mt-0.5 block text-[10px] text-slate-400">{description}</span>
+    </span>
+  </button>;
 }
 function Ecg({ width, height }) {
   return <svg width={width} height={height} viewBox="0 0 120 40" className="shrink-0"><path className="ecg-line" d="M0,24 H18 q3,-6 6,0 h4 l1.5,2.5 l2.5,-19 l2.5,23 l1.5,-6.5 h7 q5,-9 10,0 H120" fill="none" stroke="#34d399" strokeWidth="2.5" strokeLinejoin="round" /></svg>;
@@ -1106,70 +1231,154 @@ function ActionProgress({ action, t }) {
   const done = Math.min(1, (t - action.startedAt) / total);
   return <div className="mt-4 mb-2"><div className="text-sm text-sky-300 mb-2">「{action.label}」を実施中…</div><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-sky-500 transition-all" style={{ width: `${done * 100}%` }} /></div><div className="text-[10px] text-slate-500 mt-1 text-right">残り{Math.ceil((action.endsAt - t) / 60)}分(院内時間)</div></div>;
 }
-function TitleScreen({ onStart }) {
-  const [levelId, setLevelId] = useState("student");
-  const selectedLevel = CASE_LEVELS[levelId];
-  return <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col items-center justify-center px-5 py-8">
-    <GlobalStyles /><Ecg width={220} height={50} />
-    <h1 className="text-2xl sm:text-3xl font-black tracking-[0.12em] mt-2">夜間当直シミュレーター</h1>
-    <p className="text-emerald-400 font-mono text-xs mt-1 tracking-[0.3em]">CHOOSE YOUR NIGHT SHIFT</p>
-    <div className="mt-6 w-full max-w-md">
-      <div className="text-[11px] font-bold tracking-widest text-slate-500 mb-2">症例レベルを選択</div>
-      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="症例レベル">
-        {Object.values(CASE_LEVELS).map((level) => {
-          const selected = level.id === levelId;
-          return <button
-            key={level.id}
+function TitleScreen({ onStart, onResume }) {
+  const [stage, setStage] = useState("role");
+  const [levelId, setLevelId] = useState(null);
+  const [savedProgress, setSavedProgress] = useState(() => loadSavedProgress());
+  const selectedLevel = levelId ? CASE_LEVELS[levelId] : null;
+  const savedGame = savedProgress?.game;
+  const savedLevel = savedGame
+    ? (CASE_LEVELS[savedGame.levelId] ?? CASE_LEVELS.student)
+    : null;
+  const savedAt = savedProgress
+    ? new Date(savedProgress.savedAt).toLocaleString("ja-JP", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+    : "";
+
+  const chooseRole = (id) => {
+    setLevelId(id);
+    setStage("shift");
+  };
+  const resume = () => {
+    const latest = loadSavedProgress();
+    if (latest) onResume(latest.game);
+    else setSavedProgress(null);
+  };
+
+  return <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col items-center px-5 py-8">
+    <GlobalStyles />
+    <div className="mt-auto flex flex-col items-center">
+      <Ecg width={220} height={50} />
+      <h1 className="text-2xl sm:text-3xl font-black tracking-[0.12em] mt-2">夜間当直シミュレーター</h1>
+      <p className="text-emerald-400 font-mono text-xs mt-1 tracking-[0.3em]">NIGHT SHIFT ER</p>
+    </div>
+
+    {stage === "role" ? (
+      <div className="mt-7 w-full max-w-md">
+        <div className="text-center">
+          <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 1 / 2</div>
+          <h2 className="mt-2 text-xl font-black text-slate-100">
+            あなたは医学生ですか？<br />研修医・医師ですか？
+          </h2>
+          <p className="mt-2 text-xs text-slate-500">選択したレベルの50症例から出題されます。</p>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <RoleButton
+            icon="📚"
+            title="医学生です"
+            description={CASE_LEVELS.student.description}
+            onClick={() => chooseRole("student")}
+          />
+          <RoleButton
+            icon="🩺"
+            title="研修医・医師です"
+            description={CASE_LEVELS.doctor.description}
+            onClick={() => chooseRole("doctor")}
+            doctor
+          />
+        </div>
+        {savedGame && (
+          <button
             type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => setLevelId(level.id)}
-            className={`rounded-xl border px-3 py-3 text-left transition active:scale-[0.98] ${selected ? "border-sky-400 bg-sky-950/60 ring-1 ring-sky-400/40" : "border-slate-700 bg-slate-900 hover:bg-slate-800"}`}
+            onClick={resume}
+            className="mt-4 w-full rounded-xl border border-amber-500/60 bg-amber-950/30 p-4 text-left shadow-lg shadow-amber-950/30 transition hover:bg-amber-900/40 active:scale-[0.99]"
           >
-            <div className={`text-sm font-black ${selected ? "text-sky-300" : "text-slate-200"}`}>{level.title}</div>
-            <div className="font-mono text-xs text-emerald-400 mt-1">全50例</div>
-            <div className="text-[10px] leading-relaxed text-slate-500 mt-1">{level.description}</div>
-          </button>;
-        })}
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-black text-amber-300">▶ 前回の進捗から再開</span>
+              <span className="rounded-full bg-amber-400/10 px-2 py-1 text-[9px] text-amber-200">フル当直</span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-300">
+              <span>{savedLevel.title}</span>
+              <span>院内時刻 {fmtClock(savedGame.t, savedGame.shiftStartMin)}</span>
+              <span>進行度 {Math.round((savedGame.t / savedGame.shiftSec) * 100)}%</span>
+            </div>
+            <div className="mt-1 text-[10px] text-slate-500">保存日時 {savedAt}・この端末に保存</div>
+          </button>
+        )}
+        <div className="mt-6 space-y-2 text-sm text-slate-400">
+          <Rule icon="🛏️" text="4床を管理し、救急隊からの受入要請に対応します。" />
+          <Rule icon="⏱️" text="現実の1秒で院内時間が30秒進みます。" />
+          <Rule icon="🩺" text="処置を選び、患者が急変する前に診療を完遂します。" />
+        </div>
       </div>
-      <div className="mt-2 rounded-lg bg-sky-950/30 border border-sky-900/60 px-3 py-2 text-xs text-sky-200">
-        選択中: <b>{selectedLevel.title}</b> — 50例からランダム出題
+    ) : (
+      <div className="mt-7 w-full max-w-md">
+        <button
+          type="button"
+          onClick={() => setStage("role")}
+          className="text-xs font-bold text-slate-500 transition hover:text-slate-300"
+        >
+          ← 利用者区分を選び直す
+        </button>
+        <div className="mt-3 text-center">
+          <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 2 / 2</div>
+          <div className="mt-2 inline-flex rounded-full border border-sky-700/60 bg-sky-950/40 px-3 py-1 text-xs text-sky-200">
+            {selectedLevel.title}・全50例
+          </div>
+          <h2 className="mt-3 text-xl font-black text-slate-100">どちらの当直にしますか？</h2>
+          <p className="mt-2 text-xs text-slate-500">プレイ時間の目安を見て選んでください。</p>
+        </div>
+        <div className="mt-5 grid sm:grid-cols-2 gap-3">
+          <ModeButton
+            title="ショート当直"
+            hours="22:00 → 翌03:00"
+            duration="約10分"
+            description="短時間でテンポよく遊べるモード"
+            onClick={() => onStart("short", levelId)}
+          />
+          <ModeButton
+            title="フル当直"
+            hours="17:00 → 翌08:00"
+            duration="約30分"
+            description="一時停止・セーブ・再開に対応した長時間モード"
+            onClick={() => onStart("full", levelId)}
+            full
+          />
+        </div>
+        {savedGame && (
+          <p className="mt-3 text-center text-[10px] text-amber-300/80">
+            新しいフル当直を始めると、保存中の進捗は破棄されます。
+          </p>
+        )}
       </div>
-    </div>
-    <div className="mt-5 w-full max-w-md space-y-3 text-base text-slate-300">
-      <Rule icon="🛏️" text="救急外来のベッドは4床。受入要請が来たら空床へ収容する。" />
-      <Rule icon="⏱️" text="現実の1秒=院内の30秒。処置にはそれぞれ時間がかかる。" />
-      <Rule icon="🩺" text="5つの選択肢から処置を選ぶ。誤った判断は時間を浪費し、容態が悪化する。" />
-      <Rule icon="📈" text="完遂で褒めポイント。受入拒否や急変で残念ポイント。" />
-      <Rule icon="🚑" text="スコアが+5を超えるとフィーバータイム。" />
-      <Rule icon="💢" text="スコア−3で背景が赤くなり、−5で院長室へ呼び出し。" />
-    </div>
-    <div className="mt-8 w-full max-w-md grid sm:grid-cols-2 gap-3">
-      <ModeButton
-        title="ショート当直"
-        hours="22:00 → 翌03:00"
-        duration="現実10分"
-        description="従来のテンポで遊べる短時間モード"
-        onClick={() => onStart("short", levelId)}
-      />
-      <ModeButton
-        title="フル当直"
-        hours="17:00 → 翌08:00"
-        duration="現実30分"
-        description="夕方から朝の引き継ぎまで走り切る長時間モード"
-        onClick={() => onStart("full", levelId)}
-        full
-      />
-    </div>
-    <p className="text-[10px] text-slate-600 mt-4">全100症例・各レベル50例 / 学習用シミュレーション</p>
+    )}
+    <p className="mb-auto mt-7 text-[10px] text-slate-600">全100症例・各レベル50例 / 学習用シミュレーション</p>
   </div>;
+}
+function RoleButton({ icon, title, description, onClick, doctor }) {
+  return <button
+    type="button"
+    onClick={onClick}
+    className={`rounded-2xl border p-4 text-left shadow-lg transition active:scale-[0.98] ${doctor ? "border-violet-500/50 bg-violet-950/25 shadow-violet-950/30 hover:bg-violet-900/40" : "border-sky-500/50 bg-sky-950/25 shadow-sky-950/30 hover:bg-sky-900/40"}`}
+  >
+    <div className="text-3xl">{icon}</div>
+    <div className={`mt-2 text-sm font-black ${doctor ? "text-violet-300" : "text-sky-300"}`}>{title}</div>
+    <div className="mt-1 font-mono text-xs text-emerald-400">50症例</div>
+    <div className="mt-2 text-[10px] leading-relaxed text-slate-400">{description}</div>
+    <div className="mt-3 text-right text-xs font-bold text-slate-500">選択 →</div>
+  </button>;
 }
 function ModeButton({ title, hours, duration, description, onClick, full }) {
   return <button onClick={onClick} className={`rounded-xl border p-4 text-left active:scale-[0.98] transition shadow-lg ${full ? "border-amber-500/60 bg-amber-950/30 hover:bg-amber-900/40 shadow-amber-950/40" : "border-emerald-500/50 bg-emerald-950/30 hover:bg-emerald-900/40 shadow-emerald-950/40"}`}>
     <div className={`text-base font-black ${full ? "text-amber-300" : "text-emerald-300"}`}>{full ? "🌅 " : "🌙 "}{title}</div>
     <div className="font-mono text-sm text-slate-100 mt-1">{hours}</div>
-    <div className="text-xs text-sky-300 mt-1">プレイ時間: {duration}</div>
+    <div className="text-xs text-sky-300 mt-1">プレイ時間の目安: {duration}</div>
     <div className="text-[11px] text-slate-400 mt-2 leading-relaxed">{description}</div>
+    <div className={`mt-3 text-right text-xs font-bold ${full ? "text-amber-400" : "text-emerald-400"}`}>当直開始 →</div>
   </button>;
 }
 function Rule({ icon, text }) {
