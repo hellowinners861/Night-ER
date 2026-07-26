@@ -27,6 +27,105 @@ const GAME_MODES = {
   },
 };
 
+// imageSrcへ画像パスを設定すれば、仮画像から本番キャラクターへ差し替えられる。
+const TUTORIAL_CHARACTERS = {
+  director: {
+    id: "director",
+    name: "院長",
+    initial: "院",
+    imageSrc: null,
+    frameClass: "border-amber-500/60 bg-amber-950/50",
+    textClass: "text-amber-300",
+  },
+  student: {
+    id: "student",
+    name: "医学生",
+    initial: "学",
+    imageSrc: null,
+    frameClass: "border-sky-500/60 bg-sky-950/50",
+    textClass: "text-sky-300",
+  },
+  doctor: {
+    id: "doctor",
+    name: "研修医／医師",
+    initial: "医",
+    imageSrc: null,
+    frameClass: "border-violet-500/60 bg-violet-950/50",
+    textClass: "text-violet-300",
+  },
+};
+
+const getTutorialScript = (levelId, modeId) => {
+  const isDoctor = levelId === "doctor";
+  const playerId = isDoctor ? "doctor" : "student";
+  const mode = GAME_MODES[modeId] ?? GAME_MODES.short;
+  const modeText = mode.id === "full"
+    ? "フル当直は17:00から翌08:00、プレイ時間の目安は約30分だ。画面上部の「一時停止」から、当直を続ける・セーブして戻る・終了するを選べる。保存すれば、この端末から再開できるぞ。"
+    : "ショート当直は22:00から翌03:00、プレイ時間の目安は約10分だ。一時停止はない。限られた時間で優先順位をつけ、テンポよく診療を進めるんだ。";
+
+  return [
+    {
+      speaker: "director",
+      heading: "今夜の救急外来へようこそ",
+      text: isDoctor
+        ? "今夜は君に4床の救急外来を任せる。研修医・医師向けでは、緊急度判定、鑑別、蘇生、専門科連携まで実戦的に判断してもらう。"
+        : "今夜は君に4床の救急外来を任せる。医学生向けでは、国試頻出疾患と救急初期対応の基本を一つずつ考えてもらうぞ。",
+      tips: ["4床を同時管理", isDoctor ? "実戦的な50症例" : "国試・基本中心の50症例"],
+    },
+    {
+      speaker: playerId,
+      heading: "まず何をすれば？",
+      text: isDoctor
+        ? "承知しました。受入要請から診療完遂までの、操作上の流れを確認させてください。"
+        : "はい、院長。救急隊から連絡が来たら、まず何をすればよいでしょうか？",
+    },
+    {
+      speaker: "director",
+      heading: "救急隊からの受入要請",
+      text: "患者情報を確認し、表示された応答時間内に空いているベッドへ収容する。満床なら断ることもできるが、受入拒否は残念ポイント+1だ。応答しないまま時間切れになっても、断った扱いになるぞ。",
+      tips: ["空床を選んで収容", "受入拒否・時間切れは残念+1"],
+    },
+    {
+      speaker: playerId,
+      heading: "患者を収容した後は？",
+      text: isDoctor
+        ? "ベッドごとに患者を切り替え、優先順位を考えながら処置を選択するわけですね。"
+        : "複数の患者さんが来たときは、ベッドを切り替えながら診療するのですね。",
+    },
+    {
+      speaker: "director",
+      heading: "処置の選択と急変タイマー",
+      text: "各STEPで5つの選択肢から処置を選ぶ。処置には院内時間がかかり、現実の1秒で院内時間が30秒進む。誤った判断は処置時間を失ううえ、急変までの猶予が5分短くなる。ベッドのゲージが赤くなる前に診療を完遂しろ。",
+      tips: ["選択肢は5つ", "誤答で猶予−5分", "急変すると残念+2"],
+    },
+    {
+      speaker: playerId,
+      heading: "院長メーターとは？",
+      text: isDoctor
+        ? "診療成績だけでなく、病床運用も評価されるのですね。フィーバータイムの条件も教えてください。"
+        : "画面上の「褒め」「残念」と、院長メーターは何を表しているのですか？",
+    },
+    {
+      speaker: "director",
+      heading: `${mode.title}のルール`,
+      text: `症例を完遂すれば褒めポイント、受入拒否や急変で残念ポイントが増える。その差が院長メーターだ。−5で当直終了、+5を超えると救急車が殺到するフィーバータイムに入る。${modeText}`,
+      tips: [
+        "スコア−5で終了",
+        "スコア+5超でFEVER",
+        `${mode.description}・約${mode.realMinutes}分`,
+      ],
+    },
+    {
+      speaker: playerId,
+      heading: "準備完了",
+      text: isDoctor
+        ? "ルールを把握しました。患者の緊急度を見極め、チームと連携しながら当直を開始します。"
+        : "分かりました。患者さんが急変する前に、基本に沿って一つずつ判断します！",
+      tips: ["落ち着いて優先順位を判断", "迷ったら病態と緊急度に戻る"],
+    },
+  ];
+};
+
 const option = (l, t, ok, fb) => ({ l, t, ok, fb });
 const step = (q, correct, correctFb, wrongs) => ({
   q,
@@ -1097,7 +1196,9 @@ function GlobalStyles() {
     @keyframes ambRun { from { left: -14%; } to { left: 104%; } }
     .amb-run { animation: ambRun 2.6s linear infinite; }
     .amb-run2 { animation-delay: 1.3s; }
-    @media (prefers-reduced-motion: reduce) { .ecg-line,.pulse-soft,.fx-pop,.fx-shake,.fx-bg,.fx-line,.amb-run { animation: none !important; } }
+    @keyframes dialogueIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .dialogue-in { animation: dialogueIn .3s ease-out both; }
+    @media (prefers-reduced-motion: reduce) { .ecg-line,.pulse-soft,.fx-pop,.fx-shake,.fx-bg,.fx-line,.amb-run,.dialogue-in { animation: none !important; } }
   `}</style>;
 }
 function PauseMenu({ g, error, onContinue, onSave, onQuit }) {
@@ -1235,6 +1336,8 @@ function ActionProgress({ action, t }) {
 function TitleScreen({ onStart, onResume }) {
   const [stage, setStage] = useState("role");
   const [levelId, setLevelId] = useState(null);
+  const [modeId, setModeId] = useState(null);
+  const [tutorialStep, setTutorialStep] = useState(-1);
   const [savedProgress, setSavedProgress] = useState(() => loadSavedProgress());
   const {
     playing: bgmPlaying,
@@ -1243,6 +1346,8 @@ function TitleScreen({ onStart, onResume }) {
     toggle: toggleBgm,
   } = useTitleBgm();
   const selectedLevel = levelId ? CASE_LEVELS[levelId] : null;
+  const selectedMode = modeId ? GAME_MODES[modeId] : null;
+  const tutorialScript = levelId && modeId ? getTutorialScript(levelId, modeId) : [];
   const savedGame = savedProgress?.game;
   const savedLevel = savedGame
     ? (CASE_LEVELS[savedGame.levelId] ?? CASE_LEVELS.student)
@@ -1260,6 +1365,23 @@ function TitleScreen({ onStart, onResume }) {
     setLevelId(id);
     setStage("shift");
   };
+  const chooseMode = (id) => {
+    setModeId(id);
+    setTutorialStep(-1);
+    setStage("tutorial");
+  };
+  const backToRole = () => {
+    setLevelId(null);
+    setModeId(null);
+    setTutorialStep(-1);
+    setStage("role");
+  };
+  const backToShift = () => {
+    setModeId(null);
+    setTutorialStep(-1);
+    setStage("shift");
+  };
+  const startSelectedShift = () => onStart(modeId, levelId);
   const resume = () => {
     const latest = loadSavedProgress();
     if (latest) onResume(latest.game);
@@ -1300,7 +1422,7 @@ function TitleScreen({ onStart, onResume }) {
     {stage === "role" ? (
       <div className="mt-7 w-full max-w-md">
         <div className="text-center">
-          <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 1 / 2</div>
+          <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 1 / 3</div>
           <h2 className="mt-2 text-xl font-black text-slate-100">
             あなたは医学生ですか？<br />研修医・医師ですか？
           </h2>
@@ -1345,17 +1467,17 @@ function TitleScreen({ onStart, onResume }) {
           <Rule icon="🩺" text="処置を選び、患者が急変する前に診療を完遂します。" />
         </div>
       </div>
-    ) : (
+    ) : stage === "shift" ? (
       <div className="mt-7 w-full max-w-md">
         <button
           type="button"
-          onClick={() => setStage("role")}
+          onClick={backToRole}
           className="text-xs font-bold text-slate-500 transition hover:text-slate-300"
         >
           ← 利用者区分を選び直す
         </button>
         <div className="mt-3 text-center">
-          <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 2 / 2</div>
+          <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 2 / 3</div>
           <div className="mt-2 inline-flex rounded-full border border-sky-700/60 bg-sky-950/40 px-3 py-1 text-xs text-sky-200">
             {selectedLevel.title}・全50例
           </div>
@@ -1368,14 +1490,14 @@ function TitleScreen({ onStart, onResume }) {
             hours="22:00 → 翌03:00"
             duration="約10分"
             description="短時間でテンポよく遊べるモード"
-            onClick={() => onStart("short", levelId)}
+            onClick={() => chooseMode("short")}
           />
           <ModeButton
             title="フル当直"
             hours="17:00 → 翌08:00"
             duration="約30分"
             description="一時停止・セーブ・再開に対応した長時間モード"
-            onClick={() => onStart("full", levelId)}
+            onClick={() => chooseMode("full")}
             full
           />
         </div>
@@ -1385,6 +1507,21 @@ function TitleScreen({ onStart, onResume }) {
           </p>
         )}
       </div>
+    ) : (
+      <TutorialStage
+        levelId={levelId}
+        mode={selectedMode}
+        script={tutorialScript}
+        step={tutorialStep}
+        onBegin={() => setTutorialStep(0)}
+        onSkip={startSelectedShift}
+        onPrevious={() => setTutorialStep((current) => Math.max(-1, current - 1))}
+        onNext={() => {
+          if (tutorialStep >= tutorialScript.length - 1) startSelectedShift();
+          else setTutorialStep((current) => current + 1);
+        }}
+        onBack={backToShift}
+      />
     )}
     <p className="mb-auto mt-7 text-[10px] text-slate-600">全100症例・各レベル50例 / 学習用シミュレーション</p>
   </div>;
@@ -1408,8 +1545,164 @@ function ModeButton({ title, hours, duration, description, onClick, full }) {
     <div className="font-mono text-sm text-slate-100 mt-1">{hours}</div>
     <div className="text-xs text-sky-300 mt-1">プレイ時間の目安: {duration}</div>
     <div className="text-[11px] text-slate-400 mt-2 leading-relaxed">{description}</div>
-    <div className={`mt-3 text-right text-xs font-bold ${full ? "text-amber-400" : "text-emerald-400"}`}>当直開始 →</div>
+    <div className={`mt-3 text-right text-xs font-bold ${full ? "text-amber-400" : "text-emerald-400"}`}>チュートリアルへ →</div>
   </button>;
+}
+function TutorialStage({
+  levelId,
+  mode,
+  script,
+  step,
+  onBegin,
+  onSkip,
+  onPrevious,
+  onNext,
+  onBack,
+}) {
+  const player = TUTORIAL_CHARACTERS[levelId === "doctor" ? "doctor" : "student"];
+  const director = TUTORIAL_CHARACTERS.director;
+  const modeTone = mode?.id === "full" ? "amber" : "emerald";
+
+  if (step < 0) {
+    return <div className="mt-7 w-full max-w-md">
+      <button
+        type="button"
+        onClick={onBack}
+        className="text-xs font-bold text-slate-500 transition hover:text-slate-300"
+      >
+        ← 当直モードを選び直す
+      </button>
+      <div className="mt-3 text-center">
+        <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 3 / 3</div>
+        <div className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs ${modeTone === "amber" ? "border-amber-700/60 bg-amber-950/40 text-amber-200" : "border-emerald-700/60 bg-emerald-950/40 text-emerald-200"}`}>
+          {mode?.title}・{player.name}
+        </div>
+        <h2 className="mt-3 text-xl font-black text-slate-100">チュートリアルを見ますか？</h2>
+        <p className="mt-2 text-xs leading-relaxed text-slate-500">
+          院長との会話で、受入・診療・スコア・{mode?.title}の操作を約1分で確認できます。
+        </p>
+      </div>
+      <div className="mt-5 flex items-end justify-center gap-6">
+        <CharacterAvatar character={player} />
+        <CharacterAvatar character={director} />
+      </div>
+      <div className="mt-5 space-y-2">
+        <button
+          type="button"
+          onClick={onBegin}
+          className="w-full rounded-xl border border-sky-500/60 bg-sky-950/40 px-4 py-3 text-sm font-black text-sky-200 transition hover:bg-sky-900/60 active:scale-[0.99]"
+        >
+          💬 説明を聞く（約1分）
+        </button>
+        <button
+          type="button"
+          onClick={onSkip}
+          className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-slate-300 transition hover:border-emerald-600 hover:text-emerald-300 active:scale-[0.99]"
+        >
+          ⏩ スキップして当直開始
+        </button>
+      </div>
+    </div>;
+  }
+
+  const dialogue = script[step];
+  const speaker = TUTORIAL_CHARACTERS[dialogue.speaker];
+  const isDirector = dialogue.speaker === "director";
+  const isLast = step === script.length - 1;
+  const progress = ((step + 1) / script.length) * 100;
+
+  return <div className="mt-7 w-full max-w-md">
+    <div className="flex items-center justify-between gap-3">
+      <button
+        type="button"
+        onClick={onBack}
+        className="text-xs font-bold text-slate-500 transition hover:text-slate-300"
+      >
+        ← モード選択
+      </button>
+      <button
+        type="button"
+        onClick={onSkip}
+        className="text-[11px] font-bold text-slate-500 transition hover:text-emerald-300"
+      >
+        チュートリアルをスキップ
+      </button>
+    </div>
+    <div className="mt-3 flex items-center gap-3">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
+        <div
+          className="h-full rounded-full bg-sky-500 transition-all duration-300"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <span className="shrink-0 font-mono text-[10px] text-slate-500">{step + 1} / {script.length}</span>
+    </div>
+
+    <div
+      key={`${dialogue.speaker}-${step}`}
+      className={`dialogue-in mt-5 flex items-end gap-3 ${isDirector ? "" : "flex-row-reverse"}`}
+    >
+      <CharacterAvatar character={speaker} active compact />
+      <div
+        aria-live="polite"
+        className={`relative flex-1 rounded-2xl border p-4 shadow-xl ${isDirector ? "border-amber-700/50 bg-amber-950/25 shadow-amber-950/30" : levelId === "doctor" ? "border-violet-700/50 bg-violet-950/25 shadow-violet-950/30" : "border-sky-700/50 bg-sky-950/25 shadow-sky-950/30"}`}
+      >
+        <div className={`text-[11px] font-black ${speaker.textClass}`}>{speaker.name}</div>
+        <h3 className="mt-1 text-sm font-black text-slate-100">{dialogue.heading}</h3>
+        <p className="mt-2 text-sm leading-relaxed text-slate-300">{dialogue.text}</p>
+        {dialogue.tips?.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {dialogue.tips.map((tip) => (
+              <span
+                key={tip}
+                className="rounded-full border border-slate-700 bg-slate-950/70 px-2 py-1 text-[10px] text-slate-400"
+              >
+                {tip}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+
+    <div className="mt-6 grid grid-cols-2 gap-2">
+      <button
+        type="button"
+        onClick={onPrevious}
+        className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-slate-400 transition hover:text-slate-200 active:scale-[0.99]"
+      >
+        ← 前へ
+      </button>
+      <button
+        type="button"
+        onClick={onNext}
+        className={`rounded-xl border px-4 py-3 text-sm font-black transition active:scale-[0.99] ${isLast ? "border-emerald-500/70 bg-emerald-600 text-white hover:bg-emerald-500" : "border-sky-500/60 bg-sky-950/50 text-sky-200 hover:bg-sky-900/70"}`}
+      >
+        {isLast ? "当直を始める →" : "次へ →"}
+      </button>
+    </div>
+  </div>;
+}
+function CharacterAvatar({ character, active = false, compact = false }) {
+  return <div className={`shrink-0 text-center transition ${active ? "opacity-100" : "opacity-80"}`}>
+    <div className={`relative overflow-hidden rounded-2xl border-2 shadow-lg ${compact ? "h-28 w-20 sm:h-32 sm:w-24" : "h-32 w-24"} ${character.frameClass} ${active ? "ring-2 ring-white/10" : ""}`}>
+      {character.imageSrc ? (
+        <img
+          src={character.imageSrc}
+          alt={`${character.name}のキャラクター`}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <div className="flex h-full flex-col items-center justify-center">
+          <div className={`text-4xl font-black ${character.textClass}`}>{character.initial}</div>
+          <div className="mt-2 rounded bg-slate-950/70 px-2 py-1 font-mono text-[8px] tracking-wider text-slate-500">
+            仮画像
+          </div>
+        </div>
+      )}
+    </div>
+    <div className={`mt-1.5 text-[11px] font-black ${character.textClass}`}>{character.name}</div>
+  </div>;
 }
 function Rule({ icon, text }) {
   return <div className="flex gap-2.5 items-start"><span className="shrink-0">{icon}</span><span className="leading-snug">{text}</span></div>;
