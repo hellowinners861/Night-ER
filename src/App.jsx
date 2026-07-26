@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { clearSavedProgress, loadSavedProgress, saveProgress } from "./saveGame";
+import { useTitleBgm } from "./useTitleBgm";
 
 const TICK_MS = 100;
 const SEC_PER_TICK = 3;
@@ -1235,6 +1236,7 @@ function TitleScreen({ onStart, onResume }) {
   const [stage, setStage] = useState("role");
   const [levelId, setLevelId] = useState(null);
   const [savedProgress, setSavedProgress] = useState(() => loadSavedProgress());
+  const { playing: bgmPlaying, error: bgmError, toggle: toggleBgm } = useTitleBgm();
   const selectedLevel = levelId ? CASE_LEVELS[levelId] : null;
   const savedGame = savedProgress?.game;
   const savedLevel = savedGame
@@ -1265,6 +1267,17 @@ function TitleScreen({ onStart, onResume }) {
       <Ecg width={220} height={50} />
       <h1 className="text-2xl sm:text-3xl font-black tracking-[0.12em] mt-2">夜間当直シミュレーター</h1>
       <p className="text-emerald-400 font-mono text-xs mt-1 tracking-[0.3em]">NIGHT SHIFT ER</p>
+      <button
+        type="button"
+        aria-pressed={bgmPlaying}
+        onClick={toggleBgm}
+        className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold transition active:scale-95 ${bgmPlaying ? "border-emerald-500/70 bg-emerald-950/50 text-emerald-300" : "border-slate-700 bg-slate-900 text-slate-400 hover:border-sky-500 hover:text-sky-300"}`}
+      >
+        <span className={bgmPlaying ? "pulse-soft" : ""}>{bgmPlaying ? "🔊" : "♪"}</span>
+        {bgmPlaying ? "BGM ON" : "BGMを再生"}
+        <span className="text-[9px] font-normal text-slate-500">ORIGINAL</span>
+      </button>
+      {bgmError && <div className="mt-2 text-[10px] text-rose-300">{bgmError}</div>}
     </div>
 
     {stage === "role" ? (
