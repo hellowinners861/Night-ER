@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { clearSavedProgress, loadSavedProgress, saveProgress } from "./saveGame";
+import { getGameplayMusicProfile, useGameplayBgm } from "./useGameplayBgm";
 import { useTitleBgm } from "./useTitleBgm";
 
 const TICK_MS = 100;
@@ -95,8 +96,8 @@ const getTutorialScript = (levelId, modeId) => {
     {
       speaker: "director",
       heading: "処置の選択と急変タイマー",
-      text: "各STEPで5つの選択肢から処置を選ぶ。処置には院内時間がかかり、現実の1秒で院内時間が30秒進む。誤った判断は処置時間を失ううえ、急変までの猶予が5分短くなる。ベッドのゲージが赤くなる前に診療を完遂しろ。",
-      tips: ["選択肢は5つ", "誤答で猶予−5分", "急変すると残念+2"],
+      text: "各STEPで5つの選択肢から処置を選ぶ。処置には院内時間がかかり、現実の1秒で院内時間が30秒進む。誤った判断は処置時間を失ううえ、急変までの猶予が5分短くなる。患者が増えたりゲージが赤くなるとBGMも加速するが、焦らず診療を完遂しろ。",
+      tips: ["選択肢は5つ", "誤答で猶予−5分", "危険度に応じてBGM加速", "急変すると残念+2"],
     },
     {
       speaker: playerId,
@@ -970,6 +971,11 @@ export default function NightShiftER() {
   const [g, setG] = useState({ phase: "title" });
   const [saveError, setSaveError] = useState("");
   const intervalRef = useRef(null);
+  const gameplayMusicProfile = getGameplayMusicProfile(g);
+  const gameplayMusic = useGameplayBgm({
+    phase: g.phase,
+    profile: gameplayMusicProfile,
+  });
 
   useEffect(() => {
     if (g.phase !== "play") return undefined;
@@ -1047,11 +1053,13 @@ export default function NightShiftER() {
   };
 
   const start = (modeId, levelId) => {
+    gameplayMusic.start();
     if (modeId === "full") clearSavedProgress();
     setSaveError("");
     setG(newGame(modeId, levelId));
   };
   const resumeSavedGame = (savedGame) => {
+    gameplayMusic.start();
     setSaveError("");
     setG({ ...savedGame, phase: "play", fx: null });
   };
@@ -1063,6 +1071,7 @@ export default function NightShiftER() {
     }
   };
   const continueShift = () => {
+    gameplayMusic.resume();
     setSaveError("");
     setG((s) => ({ ...s, phase: "play" }));
   };
@@ -1141,6 +1150,16 @@ export default function NightShiftER() {
           <div className="h-1 flex-1 bg-slate-800 rounded-full overflow-hidden">
             <div className="h-full bg-emerald-500/70" style={{ width: `${(g.t / g.shiftSec) * 100}%` }} />
           </div>
+          <button
+            type="button"
+            onClick={gameplayMusic.toggle}
+            title={gameplayMusic.error || "プレイ中BGMの再生／停止"}
+            aria-pressed={gameplayMusic.playing}
+            aria-label={gameplayMusic.playing ? `プレイ中BGMを停止、現在${gameplayMusicProfile.bpm} BPM` : "プレイ中BGMを再生"}
+            className={`shrink-0 rounded-md border bg-slate-800 px-2 py-1 text-[10px] font-bold transition ${gameplayMusicProfile.redCount > 0 ? "border-rose-500/80 text-rose-300" : gameplayMusic.playing ? "border-sky-600/70 text-sky-300 hover:border-sky-400" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
+          >
+            {gameplayMusic.playing ? `♫ ${gameplayMusicProfile.bpm} BPM` : "♫ BGM OFF"}
+          </button>
           {g.modeId === "full" && (
             <button
               type="button"
