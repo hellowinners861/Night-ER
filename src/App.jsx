@@ -1236,7 +1236,12 @@ function TitleScreen({ onStart, onResume }) {
   const [stage, setStage] = useState("role");
   const [levelId, setLevelId] = useState(null);
   const [savedProgress, setSavedProgress] = useState(() => loadSavedProgress());
-  const { playing: bgmPlaying, error: bgmError, toggle: toggleBgm } = useTitleBgm();
+  const {
+    playing: bgmPlaying,
+    loading: bgmLoading,
+    error: bgmError,
+    toggle: toggleBgm,
+  } = useTitleBgm();
   const selectedLevel = levelId ? CASE_LEVELS[levelId] : null;
   const savedGame = savedProgress?.game;
   const savedLevel = savedGame
@@ -1270,14 +1275,26 @@ function TitleScreen({ onStart, onResume }) {
       <button
         type="button"
         aria-pressed={bgmPlaying}
+        aria-label={bgmPlaying ? "タイトルBGMを停止" : "タイトルBGMを再生"}
         onClick={toggleBgm}
+        disabled={bgmLoading}
         className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold transition active:scale-95 ${bgmPlaying ? "border-emerald-500/70 bg-emerald-950/50 text-emerald-300" : "border-slate-700 bg-slate-900 text-slate-400 hover:border-sky-500 hover:text-sky-300"}`}
       >
-        <span className={bgmPlaying ? "pulse-soft" : ""}>{bgmPlaying ? "🔊" : "♪"}</span>
-        {bgmPlaying ? "BGM ON" : "BGMを再生"}
-        <span className="text-[9px] font-normal text-slate-500">ORIGINAL</span>
+        <span className={bgmPlaying || bgmLoading ? "pulse-soft" : ""}>
+          {bgmPlaying ? "🔊" : "♪"}
+        </span>
+        {bgmLoading ? "読み込み中…" : bgmPlaying ? "BGM ON" : "BGMを再生"}
+        <span className="text-[9px] font-normal text-slate-500">PIANO + ECG</span>
       </button>
       {bgmError && <div className="mt-2 text-[10px] text-rose-300">{bgmError}</div>}
+      <a
+        href="https://dova-s.jp/se/detail/162"
+        target="_blank"
+        rel="noreferrer"
+        className="mt-1.5 text-[9px] text-slate-600 transition hover:text-slate-400"
+      >
+        心電図SE「心電図が」稿屋 隆 / DOVA-SYNDROME
+      </a>
     </div>
 
     {stage === "role" ? (
