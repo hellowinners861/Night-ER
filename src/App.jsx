@@ -1,10 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 
-const SHIFT_SEC = 18000;
-const SHIFT_START_MIN = 22 * 60;
 const TICK_MS = 100;
 const SEC_PER_TICK = 3;
 const INCOMING_WAIT = 300;
+
+const GAME_MODES = {
+  short: {
+    id: "short",
+    title: "ショート当直",
+    startMin: 22 * 60,
+    endClock: "03:00",
+    shiftSec: 5 * 60 * 60,
+    realMinutes: 10,
+    description: "22:00〜翌03:00",
+  },
+  full: {
+    id: "full",
+    title: "フル当直",
+    startMin: 17 * 60,
+    endClock: "08:00",
+    shiftSec: 15 * 60 * 60,
+    realMinutes: 30,
+    description: "17:00〜翌08:00",
+  },
+};
 
 const option = (l, t, ok, fb) => ({ l, t, ok, fb });
 const step = (q, correct, correctFb, wrongs) => ({
@@ -479,19 +498,28 @@ const shuffle = (arr) => {
   }
   return a;
 };
-const fmtClock = (gameSec) => {
-  const total = SHIFT_START_MIN + Math.floor(gameSec / 60);
+const fmtClock = (gameSec, startMin) => {
+  const total = startMin + Math.floor(gameSec / 60);
   return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 };
 const rand = (n) => Math.floor(Math.random() * n);
 const pushLog = (log, msg) => [msg, ...log].slice(0, 4);
-const newGame = () => ({
+const newGame = (modeId = "short") => {
+  const mode = GAME_MODES[modeId] ?? GAME_MODES.short;
+  return ({
   phase: "play", t: 0, praise: 0, bad: 0,
+  modeId: mode.id,
+  modeTitle: mode.title,
+  shiftStartMin: mode.startMin,
+  shiftSec: mode.shiftSec,
+  endClock: mode.endClock,
+  realMinutes: mode.realMinutes,
   beds: [null, null, null, null], incoming: null,
   order: shuffle(CASES.map((_, i) => i)), ci: 0,
   nextSpawnAt: 60 + rand(120), emptySince: 0, focus: 0, fx: null, log: [],
   stats: { treated: 0, refused: 0, crashed: 0, wrongs: 0, picks: 0, done: [] },
-});
+  });
+};
 
 export default function NightShiftER() {
   const [g, setG] = useState({ phase: "title" });
@@ -509,7 +537,7 @@ export default function NightShiftER() {
       ...s, t: s.t + SEC_PER_TICK, beds: [...s.beds], log: [...s.log],
       stats: { ...s.stats, done: [...s.stats.done] },
     };
-    if (n.t >= SHIFT_SEC) return { ...n, phase: "end" };
+    if (n.t >= n.shiftSec) return { ...n, phase: "end" };
     if (n.incoming && n.t >= n.incoming.deadline) {
       const c = CASES[n.incoming.caseIdx];
       n.bad += 1; n.stats.refused += 1;
@@ -565,7 +593,8 @@ export default function NightShiftER() {
     return n;
   };
 
-  const start = () => setG(newGame());
+  const start = (modeId) => setG(newGame(modeId));
+  const retry = () => setG(newGame(g.modeId ?? "short"));
   const accept = (bedIdx) => setG((s) => {
     if (!s.incoming || s.beds[bedIdx]) return s;
     const c = CASES[s.incoming.caseIdx];
@@ -599,8 +628,8 @@ export default function NightShiftER() {
   });
 
   if (g.phase === "title") return <TitleScreen onStart={start} />;
-  if (g.phase === "over") return <ResultScreen g={g} fired onRetry={start} />;
-  if (g.phase === "end") return <ResultScreen g={g} onRetry={start} />;
+  if (g.phase === "over") return <ResultScreen g={g} fired onRetry={retry} />;
+  if (g.phase === "end") return <ResultScreen g={g} onRetry={retry} />;
 
   const score = g.praise - g.bad;
   const fever = score > 5;
@@ -612,8 +641,8 @@ export default function NightShiftER() {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Ecg width={54} height={22} />
-            <span className="font-mono text-emerald-400 text-xl font-bold tracking-wider">{fmtClock(g.t)}</span>
-            <span className="text-slate-500 text-[10px] leading-tight">勤務終了<br />03:00</span>
+            <span className="font-mono text-emerald-400 text-xl font-bold tracking-wider">{fmtClock(g.t, g.shiftStartMin)}</span>
+            <span className="text-slate-500 text-[10px] leading-tight">{g.modeTitle}<br />終了 {g.endClock}</span>
           </div>
           <div className="flex items-center gap-3 text-sm">
             <span className="text-amber-300">褒め <b className="font-mono">{g.praise}</b></span>
@@ -625,7 +654,7 @@ export default function NightShiftER() {
           </div>
         </div>
         <div className="mt-1.5 h-1 bg-slate-800 rounded-full overflow-hidden">
-          <div className="h-full bg-emerald-500/70" style={{ width: `${(g.t / SHIFT_SEC) * 100}%` }} />
+          <div className="h-full bg-emerald-500/70" style={{ width: `${(g.t / g.shiftSec) * 100}%` }} />
         </div>
       </header>
       {g.fx && g.t < g.fx.until && <FxOverlay fx={g.fx} />}
@@ -736,7 +765,7 @@ function TitleScreen({ onStart }) {
   return <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col items-center justify-center px-5 py-8">
     <GlobalStyles /><Ecg width={220} height={50} />
     <h1 className="text-2xl sm:text-3xl font-black tracking-[0.12em] mt-2">夜間当直シミュレーター</h1>
-    <p className="text-emerald-400 font-mono text-xs mt-1 tracking-[0.3em]">NIGHT SHIFT 22:00 — 03:00</p>
+    <p className="text-emerald-400 font-mono text-xs mt-1 tracking-[0.3em]">CHOOSE YOUR NIGHT SHIFT</p>
     <div className="mt-7 w-full max-w-md space-y-3 text-base text-slate-300">
       <Rule icon="🛏️" text="救急外来のベッドは4床。受入要請が来たら空床へ収容する。" />
       <Rule icon="⏱️" text="現実の1秒=院内の30秒。処置にはそれぞれ時間がかかる。" />
@@ -745,9 +774,33 @@ function TitleScreen({ onStart }) {
       <Rule icon="🚑" text="スコアが+5を超えるとフィーバータイム。" />
       <Rule icon="💢" text="スコア−3で背景が赤くなり、−5で院長室へ呼び出し。" />
     </div>
-    <button onClick={onStart} className="mt-8 px-10 py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-lg transition shadow-lg shadow-emerald-900/50">当直開始</button>
-    <p className="text-[10px] text-slate-600 mt-4">1プレイ最大10分・症例は国試範囲+実臨床あるある</p>
+    <div className="mt-8 w-full max-w-md grid sm:grid-cols-2 gap-3">
+      <ModeButton
+        title="ショート当直"
+        hours="22:00 → 翌03:00"
+        duration="現実10分"
+        description="従来のテンポで遊べる短時間モード"
+        onClick={() => onStart("short")}
+      />
+      <ModeButton
+        title="フル当直"
+        hours="17:00 → 翌08:00"
+        duration="現実30分"
+        description="夕方から朝の引き継ぎまで走り切る長時間モード"
+        onClick={() => onStart("full")}
+        full
+      />
+    </div>
+    <p className="text-[10px] text-slate-600 mt-4">30症例・国試範囲+実臨床あるある</p>
   </div>;
+}
+function ModeButton({ title, hours, duration, description, onClick, full }) {
+  return <button onClick={onClick} className={`rounded-xl border p-4 text-left active:scale-[0.98] transition shadow-lg ${full ? "border-amber-500/60 bg-amber-950/30 hover:bg-amber-900/40 shadow-amber-950/40" : "border-emerald-500/50 bg-emerald-950/30 hover:bg-emerald-900/40 shadow-emerald-950/40"}`}>
+    <div className={`text-base font-black ${full ? "text-amber-300" : "text-emerald-300"}`}>{full ? "🌅 " : "🌙 "}{title}</div>
+    <div className="font-mono text-sm text-slate-100 mt-1">{hours}</div>
+    <div className="text-xs text-sky-300 mt-1">プレイ時間: {duration}</div>
+    <div className="text-[11px] text-slate-400 mt-2 leading-relaxed">{description}</div>
+  </button>;
 }
 function Rule({ icon, text }) {
   return <div className="flex gap-2.5 items-start"><span className="shrink-0">{icon}</span><span className="leading-snug">{text}</span></div>;
@@ -759,7 +812,7 @@ function ResultScreen({ g, fired, onRetry }) {
   const rank = fired ? "—" : score >= 12 ? "S" : score >= 8 ? "A" : score >= 4 ? "B" : score >= 0 ? "C" : "D";
   const rankMsg = { S: "院長「君に病院を継いでほしい」", A: "院長「素晴らしい当直だった」", B: "院長「まずまずだな」", C: "院長「…次に期待する」", D: "院長「明日、院長室へ」", "—": "" }[rank];
   return <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col items-center px-5 py-10">
-    {fired ? <><div className="text-5xl">💢</div><h1 className="text-2xl font-black mt-3 text-rose-400">院長室へ呼び出し</h1><p className="text-sm text-slate-400 mt-2 text-center">残念ポイントが溜まりすぎた。<br />当直は途中交代となった…</p></> : <><div className="font-mono text-emerald-400 tracking-[0.3em] text-xs">03:00 — 勤務終了</div><h1 className="text-2xl font-black mt-2">当直、お疲れさまでした</h1><div className="mt-5 text-center"><div className="text-6xl font-black text-emerald-400">{rank}</div><div className="text-xs text-slate-400 mt-1">{rankMsg}</div></div></>}
+    {fired ? <><div className="text-5xl">💢</div><h1 className="text-2xl font-black mt-3 text-rose-400">院長室へ呼び出し</h1><p className="text-sm text-slate-400 mt-2 text-center">残念ポイントが溜まりすぎた。<br />当直は途中交代となった…</p></> : <><div className="font-mono text-emerald-400 tracking-[0.3em] text-xs">{g.endClock} — {g.modeTitle}終了</div><h1 className="text-2xl font-black mt-2">当直、お疲れさまでした</h1><div className="mt-5 text-center"><div className="text-6xl font-black text-emerald-400">{rank}</div><div className="text-xs text-slate-400 mt-1">{rankMsg}</div></div></>}
     <div className="mt-7 w-full max-w-sm grid grid-cols-2 gap-2 text-sm">
       <Stat label="最終スコア" value={score >= 0 ? `+${score}` : score} accent /><Stat label="正答率" value={`${acc}%`} /><Stat label="完遂した症例" value={treated} /><Stat label="受入拒否" value={refused} /><Stat label="急変させた患者" value={crashed} /><Stat label="判断ミス" value={wrongs} />{!fired && <Stat label="朝番へ引き継ぎ" value={g.beds.filter(Boolean).length} />}
     </div>
