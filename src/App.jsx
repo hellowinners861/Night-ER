@@ -1182,12 +1182,19 @@ export default function NightShiftER() {
   const [g, setG] = useState({ phase: "title" });
   const [saveError, setSaveError] = useState("");
   const intervalRef = useRef(null);
+  const previousRedBedsRef = useRef([]);
+  const lastSoundedFxRef = useRef(null);
   const gameplayMusicProfile = getGameplayMusicProfile(g);
   const gameplayMusic = useGameplayBgm({
     phase: g.phase,
     profile: gameplayMusicProfile,
   });
-  const { playGameChoice } = useButtonSfx();
+  const {
+    playGameChoice,
+    playPatientWarning,
+    playIcuWarning,
+    playGoodDoctor,
+  } = useButtonSfx();
 
   useEffect(() => {
     if (g.phase !== "play") return undefined;
@@ -1206,6 +1213,30 @@ export default function NightShiftER() {
       recordHospitalClear(g.hospitalId);
     }
   }, [g.hospitalId, g.phase]);
+
+  useEffect(() => {
+    if (g.phase !== "play" || !Array.isArray(g.beds)) return;
+    const redBeds = g.beds.map((bed) => {
+      if (!bed) return false;
+      const remain = Math.max(0, bed.arrivedAt + bed.limit - g.t);
+      return remain / bed.limit <= 0.25;
+    });
+    if (redBeds.some((isRed, index) => isRed && !previousRedBedsRef.current[index])) {
+      playPatientWarning();
+    }
+    previousRedBedsRef.current = redBeds;
+  }, [g.beds, g.phase, g.t, playPatientWarning]);
+
+  useEffect(() => {
+    if (!g.fx) {
+      if (g.phase === "play") lastSoundedFxRef.current = null;
+      return;
+    }
+    if (lastSoundedFxRef.current === g.fx) return;
+    lastSoundedFxRef.current = g.fx;
+    if (g.fx.type === "crash") playIcuWarning();
+    if (g.fx.type === "good") playGoodDoctor();
+  }, [g.fx, g.phase, playGoodDoctor, playIcuWarning]);
 
   const tick = (s) => {
     if (s.phase !== "play") return s;
