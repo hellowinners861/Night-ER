@@ -6,6 +6,8 @@ const SCHEDULE_AHEAD_SECONDS = 0.12;
 const SCHEDULER_INTERVAL_MS = 30;
 const SIXTEENTH_STEPS = 16;
 const MASTER_FADE_SECONDS = 0.45;
+const MASTER_GAIN_BASE = 0.68;
+const MASTER_GAIN_INTENSITY = 0.08;
 
 // E minorを中心にした、タイトル画面とは別系統の緊張感ある進行。
 const BAR_ROOTS = [82.41, 65.41, 73.42, 61.74]; // Em - C - D - Bm
@@ -333,7 +335,7 @@ const setEngineActive = (engine, active) => {
   engine.master.gain.setValueAtTime(engine.master.gain.value, now);
   if (active) {
     engine.nextStepAt = Math.max(engine.nextStepAt, now + 0.05);
-    const target = 0.43 + engine.intensity * 0.04;
+    const target = MASTER_GAIN_BASE + engine.intensity * MASTER_GAIN_INTENSITY;
     engine.master.gain.linearRampToValueAtTime(target, now + 0.7);
   } else {
     engine.master.gain.linearRampToValueAtTime(0, now + 0.25);

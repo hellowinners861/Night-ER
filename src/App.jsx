@@ -1155,10 +1155,10 @@ export default function NightShiftER() {
             onClick={gameplayMusic.toggle}
             title={gameplayMusic.error || "プレイ中BGMの再生／停止"}
             aria-pressed={gameplayMusic.playing}
-            aria-label={gameplayMusic.playing ? `プレイ中BGMを停止、現在${gameplayMusicProfile.bpm} BPM` : "プレイ中BGMを再生"}
+            aria-label={gameplayMusic.playing ? "プレイ中BGMを停止" : "プレイ中BGMを再生"}
             className={`shrink-0 rounded-md border bg-slate-800 px-2 py-1 text-[10px] font-bold transition ${gameplayMusicProfile.redCount > 0 ? "border-rose-500/80 text-rose-300" : gameplayMusic.playing ? "border-sky-600/70 text-sky-300 hover:border-sky-400" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
           >
-            {gameplayMusic.playing ? `♫ ${gameplayMusicProfile.bpm} BPM` : "♫ BGM OFF"}
+            {gameplayMusic.playing ? "♫ BGM ON" : "♫ BGM OFF"}
           </button>
           {g.modeId === "full" && (
             <button
