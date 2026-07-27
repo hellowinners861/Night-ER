@@ -5,6 +5,7 @@ import {
   EXTRA_STUDENT_CORE_CASES,
   EXTRA_STUDENT_MINOR_CASES,
 } from "./expandedCases";
+import EmergencyRoomBackground from "./EmergencyRoomBackground";
 import {
   isSecretUnlocked,
   loadEmergencyProgress,
@@ -1403,30 +1404,38 @@ export default function NightShiftER() {
   const fever = score > 5;
   const focusBed = g.beds[g.focus];
   return (
-    <div className="min-h-screen text-slate-200 font-sans flex flex-col" style={{ backgroundColor: score <= -3 ? "#2b0609" : "#020617", transition: "background-color .8s ease" }}>
+    <div className="relative isolate min-h-screen overflow-x-hidden bg-sky-50 text-slate-200 font-sans">
       <GlobalStyles />
-      <header className="bg-slate-900 border-b border-slate-800 px-3 py-2 sticky top-0 z-10">
+      <EmergencyRoomBackground
+        beds={g.beds}
+        t={g.t}
+        incoming={Boolean(g.incoming)}
+        paused={g.phase === "paused"}
+        danger={score <= -3}
+      />
+      <div className="relative z-[1] flex min-h-screen flex-col">
+      <header className="sticky top-0 z-10 border-b border-sky-200 bg-white/90 px-3 py-2 text-slate-700 shadow-lg backdrop-blur-md">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Ecg width={54} height={22} />
-            <span className="font-mono text-emerald-400 text-xl font-bold tracking-wider">{fmtClock(g.t, g.shiftStartMin)}</span>
+            <span className="font-mono text-teal-700 text-xl font-bold tracking-wider">{fmtClock(g.t, g.shiftStartMin)}</span>
             <span className="text-slate-500 text-[10px] leading-tight">
               {g.levelTitle}・{HOSPITAL_MODES[g.hospitalId]?.shortTitle ?? "二次救急"}<br />
               {g.modeTitle}・終了 {g.endClock}
             </span>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <span className="text-amber-300">褒め <b className="font-mono">{g.praise}</b></span>
-            <span className="text-rose-400">残念 <b className="font-mono">{g.bad}</b></span>
+            <span className="text-amber-600">褒め <b className="font-mono">{g.praise}</b></span>
+            <span className="text-rose-600">残念 <b className="font-mono">{g.bad}</b></span>
             <div className="text-center">
-              <div className={`font-mono text-lg font-bold ${score < 0 ? "text-rose-400" : "text-emerald-400"}`}>{score >= 0 ? `+${score}` : score}</div>
+              <div className={`font-mono text-lg font-bold ${score < 0 ? "text-rose-600" : "text-teal-700"}`}>{score >= 0 ? `+${score}` : score}</div>
               <div className="text-[9px] text-slate-500 -mt-1">院長メーター(−5で終了)</div>
             </div>
           </div>
         </div>
         <div className="mt-1.5 flex items-center gap-2">
-          <div className="h-1 flex-1 bg-slate-800 rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-500/70" style={{ width: `${(g.t / g.shiftSec) * 100}%` }} />
+          <div className="h-1 flex-1 bg-sky-100 rounded-full overflow-hidden">
+            <div className="h-full bg-teal-500/80" style={{ width: `${(g.t / g.shiftSec) * 100}%` }} />
           </div>
           <button
             type="button"
@@ -1434,7 +1443,7 @@ export default function NightShiftER() {
             title={gameplayMusic.error || "プレイ中BGMの再生／停止"}
             aria-pressed={gameplayMusic.playing}
             aria-label={gameplayMusic.playing ? "プレイ中BGMを停止" : "プレイ中BGMを再生"}
-            className={`shrink-0 rounded-md border bg-slate-800 px-2 py-1 text-[10px] font-bold transition ${gameplayMusicProfile.redCount > 0 ? "border-rose-500/80 text-rose-300" : gameplayMusic.playing ? "border-sky-600/70 text-sky-300 hover:border-sky-400" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
+            className={`shrink-0 rounded-md border bg-white px-2 py-1 text-[10px] font-bold shadow-sm transition ${gameplayMusicProfile.redCount > 0 ? "border-rose-500/80 text-rose-600" : gameplayMusic.playing ? "border-sky-500 text-sky-700 hover:border-sky-600" : "border-slate-300 text-slate-500 hover:text-slate-700"}`}
           >
             {gameplayMusic.playing ? "♫ BGM ON" : "♫ BGM OFF"}
           </button>
@@ -1442,7 +1451,7 @@ export default function NightShiftER() {
             <button
               type="button"
               onClick={pause}
-              className="shrink-0 rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-300 hover:border-amber-500 hover:text-amber-300 transition"
+              className="shrink-0 rounded-md border border-amber-300 bg-white px-2 py-1 text-[10px] font-bold text-amber-700 shadow-sm transition hover:border-amber-500"
             >
               ⏸ 一時停止
             </button>
@@ -1463,15 +1472,22 @@ export default function NightShiftER() {
       <div className={`grid gap-1.5 px-2 pt-2 ${g.beds.length === 10 ? "grid-cols-5" : "grid-cols-4"}`}>
         {g.beds.map((bed, i) => <BedTab key={i} idx={i} bed={bed} t={g.t} active={g.focus === i} onClick={() => setG((s) => ({ ...s, focus: i }))} />)}
       </div>
+      <div className="relative h-32 shrink-0 sm:h-48">
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-sky-300/80 bg-white/80 px-3 py-1 text-[10px] font-black tracking-wider text-sky-800 shadow-md backdrop-blur-sm">
+          LIVE ER FLOOR · {g.beds.filter(Boolean).length}名対応中
+          {g.beds.some((bed) => bed?.action) ? " · 処置進行中" : " · 巡回中"}
+        </div>
+      </div>
       <main className="flex-1 px-2 py-2">
         {focusBed
           ? <CasePanel bed={focusBed} bedIdx={g.focus} t={g.t} onChoose={choose} />
-          : <div className="h-40 flex items-center justify-center text-slate-600 text-sm border border-dashed border-slate-800 rounded-xl">ベッド{g.focus + 1}は空床</div>}
+          : <div className="h-40 flex items-center justify-center rounded-xl border border-dashed border-sky-300 bg-white/75 text-sm font-bold text-sky-800 shadow-lg backdrop-blur-md">ベッド{g.focus + 1}は空床 — スタッフ巡回中</div>}
         {fever && <FeverStrip secret={g.hospitalId === "secret"} />}
       </main>
-      <footer className="px-3 pb-3 space-y-0.5">
-        {g.log.map((m, i) => <div key={`${m}-${i}`} className={`text-[11px] ${i === 0 ? "text-slate-300" : "text-slate-600"}`}>{m}</div>)}
+      <footer className="mx-2 mb-2 space-y-0.5 rounded-lg bg-white/75 px-3 py-2 shadow backdrop-blur-md">
+        {g.log.map((m, i) => <div key={`${m}-${i}`} className={`text-[11px] ${i === 0 ? "font-bold text-slate-800" : "text-slate-500"}`}>{m}</div>)}
       </footer>
+      </div>
     </div>
   );
 }
