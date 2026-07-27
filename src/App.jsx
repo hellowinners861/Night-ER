@@ -1406,13 +1406,6 @@ export default function NightShiftER() {
   return (
     <div className="relative isolate min-h-screen overflow-x-hidden bg-sky-50 text-slate-200 font-sans">
       <GlobalStyles />
-      <EmergencyRoomBackground
-        beds={g.beds}
-        t={g.t}
-        incoming={Boolean(g.incoming)}
-        paused={g.phase === "paused"}
-        danger={score <= -3}
-      />
       <div className="relative z-[1] flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 border-b border-sky-200 bg-white/90 px-3 py-2 text-slate-700 shadow-lg backdrop-blur-md">
         <div className="flex items-center justify-between gap-2">
@@ -1472,12 +1465,27 @@ export default function NightShiftER() {
       <div className={`grid gap-1.5 px-2 pt-2 ${g.beds.length === 10 ? "grid-cols-5" : "grid-cols-4"}`}>
         {g.beds.map((bed, i) => <BedTab key={i} idx={i} bed={bed} t={g.t} active={g.focus === i} onClick={() => setG((s) => ({ ...s, focus: i }))} />)}
       </div>
-      <div className="relative h-32 shrink-0 sm:h-48">
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-sky-300/80 bg-white/80 px-3 py-1 text-[10px] font-black tracking-wider text-sky-800 shadow-md backdrop-blur-sm">
+      <section
+        aria-label="救急外来フロアのライブ状況"
+        className="relative mx-2 mt-2 h-56 shrink-0 overflow-hidden rounded-2xl border border-sky-300/90 bg-[#dff4f6] shadow-xl shadow-sky-900/10 sm:h-72 lg:h-[32rem]"
+      >
+        <EmergencyRoomBackground
+          beds={g.beds}
+          t={g.t}
+          incoming={Boolean(g.incoming)}
+          paused={g.phase === "paused"}
+          danger={score <= -3}
+        />
+        <div className="absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-sky-950/25 to-transparent" />
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-white/90 bg-white/90 px-3 py-1 text-[10px] font-black tracking-wider text-sky-800 shadow-lg backdrop-blur-sm">
           LIVE ER FLOOR · {g.beds.filter(Boolean).length}名対応中
-          {g.beds.some((bed) => bed?.action) ? " · 処置進行中" : " · 巡回中"}
+          {g.beds.some((bed) => bed?.action)
+            ? " · 処置進行中"
+            : g.beds.some(Boolean)
+              ? " · 初療・観察中"
+              : " · 巡回中"}
         </div>
-      </div>
+      </section>
       <main className="flex-1 px-2 py-2">
         {focusBed
           ? <CasePanel bed={focusBed} bedIdx={g.focus} t={g.t} onChoose={choose} />
