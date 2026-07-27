@@ -11,6 +11,7 @@ import {
   recordHospitalClear,
 } from "./progression";
 import { clearSavedProgress, loadSavedProgress, saveProgress } from "./saveGame";
+import { useButtonSfx } from "./useButtonSfx";
 import { getGameplayMusicProfile, useGameplayBgm } from "./useGameplayBgm";
 import { useTitleBgm } from "./useTitleBgm";
 
@@ -1186,6 +1187,7 @@ export default function NightShiftER() {
     phase: g.phase,
     profile: gameplayMusicProfile,
   });
+  const { playGameChoice } = useButtonSfx();
 
   useEffect(() => {
     if (g.phase !== "play") return undefined;
@@ -1345,17 +1347,22 @@ export default function NightShiftER() {
       log: pushLog(s.log, `⛔ ${c.chief}の受け入れを断った(残念+1)`),
     };
   });
-  const choose = (bedIdx, optIdx) => setG((s) => {
-    const bed = s.beds[bedIdx];
-    if (!bed || bed.action) return s;
-    const picked = bed.steps[bed.stepIdx].opts[optIdx];
-    const beds = [...s.beds];
-    beds[bedIdx] = {
-      ...bed, feedback: null,
-      action: { optIdx, startedAt: s.t, endsAt: s.t + picked.t * 60, label: picked.l },
-    };
-    return { ...s, beds };
-  });
+  const choose = (bedIdx, optIdx) => {
+    const bed = g.beds[bedIdx];
+    if (!bed || bed.action || !bed.steps[bed.stepIdx]?.opts[optIdx]) return;
+    playGameChoice();
+    setG((s) => {
+      const currentBed = s.beds[bedIdx];
+      if (!currentBed || currentBed.action) return s;
+      const picked = currentBed.steps[currentBed.stepIdx].opts[optIdx];
+      const beds = [...s.beds];
+      beds[bedIdx] = {
+        ...currentBed, feedback: null,
+        action: { optIdx, startedAt: s.t, endsAt: s.t + picked.t * 60, label: picked.l },
+      };
+      return { ...s, beds };
+    });
+  };
 
   if (g.phase === "title") return <TitleScreen onStart={start} onResume={resumeSavedGame} />;
   if (g.phase === "over") return <ResultScreen g={g} fired onRetry={retry} onHome={returnToTitle} />;
@@ -1606,6 +1613,7 @@ function TitleScreen({ onStart, onResume }) {
     error: bgmError,
     toggle: toggleBgm,
   } = useTitleBgm();
+  const { playMenuDecision } = useButtonSfx();
   const selectedLevel = levelId ? CASE_LEVELS[levelId] : null;
   const selectedHospital = hospitalId ? HOSPITAL_MODES[hospitalId] : null;
   const selectedMode = modeId ? GAME_MODES[modeId] : null;
@@ -1630,20 +1638,24 @@ function TitleScreen({ onStart, onResume }) {
     : "";
 
   const chooseRole = (id) => {
+    playMenuDecision();
     setLevelId(id);
     setStage("hospital");
   };
   const chooseHospital = (id) => {
     if (id === "secret" && !secretUnlocked) return;
+    playMenuDecision();
     setHospitalId(id);
     setStage("shift");
   };
   const chooseMode = (id) => {
+    playMenuDecision();
     setModeId(id);
     setTutorialStep(-1);
     setStage("tutorial");
   };
   const backToRole = () => {
+    playMenuDecision();
     setLevelId(null);
     setHospitalId(null);
     setModeId(null);
@@ -1651,20 +1663,28 @@ function TitleScreen({ onStart, onResume }) {
     setStage("role");
   };
   const backToHospital = () => {
+    playMenuDecision();
     setHospitalId(null);
     setModeId(null);
     setTutorialStep(-1);
     setStage("hospital");
   };
   const backToShift = () => {
+    playMenuDecision();
     setModeId(null);
     setTutorialStep(-1);
     setStage("shift");
   };
-  const startSelectedShift = () => onStart(modeId, levelId, hospitalId);
+  const startSelectedShift = () => {
+    playMenuDecision();
+    onStart(modeId, levelId, hospitalId);
+  };
   const resume = () => {
     const latest = loadSavedProgress();
-    if (latest) onResume(latest.game);
+    if (latest) {
+      playMenuDecision();
+      onResume(latest.game);
+    }
     else setSavedProgress(null);
   };
 
@@ -1843,12 +1863,21 @@ function TitleScreen({ onStart, onResume }) {
         mode={selectedMode}
         script={tutorialScript}
         step={tutorialStep}
-        onBegin={() => setTutorialStep(0)}
+        onBegin={() => {
+          playMenuDecision();
+          setTutorialStep(0);
+        }}
         onSkip={startSelectedShift}
-        onPrevious={() => setTutorialStep((current) => Math.max(-1, current - 1))}
+        onPrevious={() => {
+          playMenuDecision();
+          setTutorialStep((current) => Math.max(-1, current - 1));
+        }}
         onNext={() => {
           if (tutorialStep >= tutorialScript.length - 1) startSelectedShift();
-          else setTutorialStep((current) => current + 1);
+          else {
+            playMenuDecision();
+            setTutorialStep((current) => current + 1);
+          }
         }}
         onBack={backToShift}
       />
