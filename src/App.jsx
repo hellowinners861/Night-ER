@@ -1,4 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  EXTRA_DOCTOR_CORE_CASES,
+  EXTRA_DOCTOR_MINOR_CASES,
+  EXTRA_STUDENT_CORE_CASES,
+  EXTRA_STUDENT_MINOR_CASES,
+} from "./expandedCases";
+import {
+  isSecretUnlocked,
+  loadEmergencyProgress,
+  recordHospitalClear,
+} from "./progression";
 import { clearSavedProgress, loadSavedProgress, saveProgress } from "./saveGame";
 import { getGameplayMusicProfile, useGameplayBgm } from "./useGameplayBgm";
 import { useTitleBgm } from "./useTitleBgm";
@@ -25,6 +36,36 @@ const GAME_MODES = {
     shiftSec: 15 * 60 * 60,
     realMinutes: 30,
     description: "17:00〜翌08:00",
+  },
+};
+
+export const HOSPITAL_MODES = {
+  secondary: {
+    id: "secondary",
+    title: "二次救急病院",
+    shortTitle: "二次救急",
+    icon: "🏥",
+    bedCount: 4,
+    description: "地域の急性疾患を初療し、入院または高次転送を判断する",
+    caseMix: "一般急性疾患・軽症が中心",
+  },
+  tertiary: {
+    id: "tertiary",
+    title: "三次救急・救命救急センター",
+    shortTitle: "三次救急",
+    icon: "🚁",
+    bedCount: 4,
+    description: "重篤・複数診療科・高エネルギー外傷を集学的に診療する",
+    caseMix: "重症・高エネルギー外傷が約8割",
+  },
+  secret: {
+    id: "secret",
+    title: "断らない救急",
+    shortTitle: "SECRET",
+    icon: "♾️",
+    bedCount: 10,
+    description: "搬送依頼を断らず、10床へ次々と自動収容する極限モード",
+    caseMix: "全120症例・搬送ラッシュ",
   },
 };
 
@@ -56,42 +97,94 @@ const TUTORIAL_CHARACTERS = {
   },
 };
 
-const getTutorialScript = (levelId, modeId) => {
+const getTutorialScript = (levelId, modeId, hospitalId) => {
   const isDoctor = levelId === "doctor";
   const playerId = isDoctor ? "doctor" : "student";
   const mode = GAME_MODES[modeId] ?? GAME_MODES.short;
+  const hospital = HOSPITAL_MODES[hospitalId] ?? HOSPITAL_MODES.secondary;
+  const isTertiary = hospital.id === "tertiary";
+  const isSecret = hospital.id === "secret";
   const modeText = mode.id === "full"
     ? "フル当直は17:00から翌08:00、プレイ時間の目安は約30分だ。画面上部の「一時停止」から、当直を続ける・セーブして戻る・終了するを選べる。保存すれば、この端末から再開できるぞ。"
     : "ショート当直は22:00から翌03:00、プレイ時間の目安は約10分だ。一時停止はない。限られた時間で優先順位をつけ、テンポよく診療を進めるんだ。";
+  const opening = isSecret
+    ? (isDoctor
+      ? "ここはシークレットの「断らない救急」だ。10床すべてを君に任せる。搬送依頼は選別せず自動収容され、重症も軽症も途切れなく来る。"
+      : "二次救急と三次救急を完走した褒美に、10床の「断らない救急」へ招待しよう。患者さんは自動で次々に入ってくるぞ。")
+    : isTertiary
+      ? (isDoctor
+        ? "今夜は救命救急センターを任せる。高エネルギー外傷、ショック、重症中毒など、複数診療科を同時に動かす症例が中心だ。"
+        : "今夜は三次救急だ。重篤患者や高エネルギー外傷が多い。医学生向けでは、まずABCDEと『すぐ上級医を呼ぶ場面』を学んでもらう。")
+      : (isDoctor
+        ? "今夜は地域の二次救急を任せる。限られた専門資源で初療し、自院入院か三次救急への転送かを判断してもらう。"
+        : "今夜は地域の二次救急だ。よく出会う急性疾患を診て、治療して帰せるか、入院か、三次救急へ送るかを考えてもらうぞ。");
+  const facilityLesson = isSecret
+    ? "搬送依頼への返答操作はない。空床ができれば次の患者を自動収容する。10床を俯瞰し、赤ゲージと処置中の患者を絶えず見直せ。"
+    : isTertiary
+      ? (isDoctor
+        ? "一人で診断を完成させてから動くな。外傷チーム、麻酔科、外科、IVR、大量輸血を早期に並行起動し、damage-controlを意識する。"
+        : "三次救急では、詳しい診断より先に生命を脅かすA・B・Cを探す。できることを始めながら、上級医と専門チームを早く呼ぶんだ。")
+      : (isDoctor
+        ? "二次救急の勝負は、重症化を見抜く初療と転送判断だ。自施設で可能な検査・治療を進めつつ、高次搬送が必要なら安定化と連絡を遅らせない。"
+        : "二次救急では頻度の高い病気を基本どおりに評価する。帰宅させてよい条件と、入院・高次搬送が必要な赤旗を区別しよう。");
+  const arrivalRule = isSecret
+    ? "空床がある限り救急車は自動収容される。断るボタンも応答猶予もない。1床終えた瞬間に次が来るつもりで、優先順位を更新し続けろ。"
+    : "患者情報を確認し、表示された応答時間内に空いているベッドへ収容する。満床なら断ることもできるが、受入拒否は残念ポイント+1だ。応答しないまま時間切れになっても、断った扱いになるぞ。";
 
   return [
     {
       speaker: "director",
-      heading: "今夜の救急外来へようこそ",
-      text: isDoctor
-        ? "今夜は君に4床の救急外来を任せる。研修医・医師向けでは、緊急度判定、鑑別、蘇生、専門科連携まで実戦的に判断してもらう。"
-        : "今夜は君に4床の救急外来を任せる。医学生向けでは、国試頻出疾患と救急初期対応の基本を一つずつ考えてもらうぞ。",
-      tips: ["4床を同時管理", isDoctor ? "実戦的な50症例" : "国試・基本中心の50症例"],
+      heading: `${hospital.title}へようこそ`,
+      text: opening,
+      tips: [
+        `${hospital.bedCount}床を同時管理`,
+        isDoctor ? "主要100例＋軽症20例" : "国試・基本100例＋軽症20例",
+        hospital.caseMix,
+      ],
     },
     {
       speaker: playerId,
-      heading: "まず何をすれば？",
-      text: isDoctor
-        ? "承知しました。受入要請から診療完遂までの、操作上の流れを確認させてください。"
-        : "はい、院長。救急隊から連絡が来たら、まず何をすればよいでしょうか？",
+      heading: isTertiary ? "重症患者への向き合い方" : isSecret ? "10床を全部ですか？" : "二次救急の役割",
+      text: isSecret
+        ? (isDoctor
+          ? "10床へ自動収容ですか。受入操作に使っていた時間も、患者の再評価へ回す必要がありますね。"
+          : "院長、10床に患者さんが勝手に入ってくるのですか？　見落とさない方法を教えてください。")
+        : isTertiary
+          ? (isDoctor
+            ? "了解しました。蘇生と診断、専門チーム招集を並行して進める前提で動きます。"
+            : "院長、高エネルギー外傷では、診断名を考える前に何から見ればよいですか？")
+          : (isDoctor
+            ? "自院で完結できる患者と、高次搬送すべき患者を早期に分けるのが役割ですね。"
+            : "院長、よくある症状でも、帰宅と入院をどう見分ければよいですか？"),
     },
     {
       speaker: "director",
-      heading: "救急隊からの受入要請",
-      text: "患者情報を確認し、表示された応答時間内に空いているベッドへ収容する。満床なら断ることもできるが、受入拒否は残念ポイント+1だ。応答しないまま時間切れになっても、断った扱いになるぞ。",
-      tips: ["空床を選んで収容", "受入拒否・時間切れは残念+1"],
+      heading: `${hospital.shortTitle}での判断軸`,
+      text: facilityLesson,
+      tips: isSecret
+        ? ["10床を俯瞰", "空床へ自動収容", "優先順位を反復更新"]
+        : isTertiary
+          ? ["ABCDEを優先", "蘇生と診断を並行", "チームを早期招集"]
+          : ["赤旗を見抜く", "入院か帰宅か", "必要なら安定化して転送"],
     },
     {
       speaker: playerId,
-      heading: "患者を収容した後は？",
-      text: isDoctor
-        ? "ベッドごとに患者を切り替え、優先順位を考えながら処置を選択するわけですね。"
-        : "複数の患者さんが来たときは、ベッドを切り替えながら診療するのですね。",
+      heading: isSecret ? "搬送はどう受けますか？" : "救急隊から連絡が来たら？",
+      text: isSecret
+        ? (isDoctor
+          ? "受入可否を選ばず、ベッドが空き次第すぐ診療開始ということですね。"
+          : "断る操作はなく、空いたベッドへ自動的に入るのですね。")
+        : (isDoctor
+          ? "受入要請から収容し、複数ベッドの緊急度を比較しながら動くわけですね。"
+          : "患者情報を見て、空いているベッドを選べばよいのですね。"),
+    },
+    {
+      speaker: "director",
+      heading: isSecret ? "断らない受入システム" : "救急隊からの受入要請",
+      text: arrivalRule,
+      tips: isSecret
+        ? ["受入拒否なし", "空床へ自動収容", "搬送間隔が短い"]
+        : ["空床を選んで収容", "受入拒否・時間切れは残念+1"],
     },
     {
       speaker: "director",
@@ -103,7 +196,7 @@ const getTutorialScript = (levelId, modeId) => {
       speaker: playerId,
       heading: "院長メーターとは？",
       text: isDoctor
-        ? "診療成績だけでなく、病床運用も評価されるのですね。フィーバータイムの条件も教えてください。"
+        ? `${hospital.shortTitle}でも、診療成績だけでなく病床運用を含めて評価されるのですね。`
         : "画面上の「褒め」「残念」と、院長メーターは何を表しているのですか？",
     },
     {
@@ -120,9 +213,17 @@ const getTutorialScript = (levelId, modeId) => {
       speaker: playerId,
       heading: "準備完了",
       text: isDoctor
-        ? "ルールを把握しました。患者の緊急度を見極め、チームと連携しながら当直を開始します。"
-        : "分かりました。患者さんが急変する前に、基本に沿って一つずつ判断します！",
-      tips: ["落ち着いて優先順位を判断", "迷ったら病態と緊急度に戻る"],
+        ? (isTertiary
+          ? "蘇生、診断、専門科連携を並行し、救命のボトルネックを先に潰します。"
+          : isSecret
+            ? "10床の優先順位を更新し続け、空床が出るたび次の患者を受けます。"
+            : "初療を進めながら、自院完結と高次搬送を早期に判断します。")
+        : (isTertiary
+          ? "ABCDEに戻り、重症ならすぐ上級医とチームを呼びます！"
+          : isSecret
+            ? "10床を見渡して、赤ゲージの患者さんから落ち着いて対応します！"
+            : "赤旗を見逃さず、帰宅・入院・転送を基本に沿って考えます！"),
+      tips: ["落ち着いて優先順位を判断", `${hospital.shortTitle}の役割を意識`],
     },
   ];
 };
@@ -898,31 +999,72 @@ const NEW_DOCTOR_CASES = [
     ["循環を安定させても活動性出血が続く。根本的な止血方針は?", "造影CT・気管支鏡で局在し気管支動脈塞栓術へ", "呼吸器・放射線科・胸部外科を早期に集め、出血源を同定して気管支動脈塞栓術を中心に止血する。", ["止血薬だけで翌朝まで待つ", "下部消化管内視鏡", "胸腔ドレーン", "利尿薬のみ"], 8]),
 ];
 
-const CASE_LEVELS = {
+const LEGACY_TERTIARY_DIAGNOSES = new Set([
+  "急性胆管炎",
+  "気管支喘息発作",
+  "急性胆嚢炎",
+  "細菌性髄膜炎",
+  "心タンポナーデ",
+  "重症熱中症",
+  "急性喉頭蓋炎",
+  "常位胎盤早期剥離",
+  "子癇",
+  "産後出血",
+  "敗血症性ショック",
+  "大量喀血",
+]);
+
+const annotateLegacyCase = (caseData) => ({
+  ...caseData,
+  careLevel: caseData.diff >= 2 || LEGACY_TERTIARY_DIAGNOSES.has(caseData.dx)
+    ? "tertiary"
+    : "secondary",
+  minor: false,
+});
+
+export const CASE_LEVELS = {
   student: {
     id: "student",
     title: "医学生向け",
     shortTitle: "医学生",
     description: "国試頻出疾患と救急初期対応の基本を中心に学ぶ",
-    cases: [...CASES.filter((c) => c.kokushi), ...NEW_STUDENT_CASES],
+    cases: [
+      ...CASES.filter((c) => c.kokushi).map(annotateLegacyCase),
+      ...NEW_STUDENT_CASES.map(annotateLegacyCase),
+      ...EXTRA_STUDENT_CORE_CASES,
+      ...EXTRA_STUDENT_MINOR_CASES,
+    ],
   },
   doctor: {
     id: "doctor",
     title: "研修医・医師向け",
     shortTitle: "研修医・医師",
     description: "鑑別、蘇生、専門科連携まで問う実戦的な症例",
-    cases: [...CASES.filter((c) => !c.kokushi), ...NEW_DOCTOR_CASES],
+    cases: [
+      ...CASES.filter((c) => !c.kokushi).map(annotateLegacyCase),
+      ...NEW_DOCTOR_CASES.map(annotateLegacyCase),
+      ...EXTRA_DOCTOR_CORE_CASES,
+      ...EXTRA_DOCTOR_MINOR_CASES,
+    ],
   },
 };
 
 Object.values(CASE_LEVELS).forEach((level) => {
-  if (level.cases.length !== 50) {
-    throw new Error(`${level.title}の症例数が50例ではありません: ${level.cases.length}例`);
+  const coreCount = level.cases.filter((caseData) => !caseData.minor).length;
+  const minorCount = level.cases.filter((caseData) => caseData.minor).length;
+  if (level.cases.length !== 120 || coreCount !== 100 || minorCount !== 20) {
+    throw new Error(
+      `${level.title}の症例数が不正です: 主要${coreCount}例・軽症${minorCount}例・計${level.cases.length}例`,
+    );
   }
   level.cases.forEach((caseData) => {
-    if (caseData.steps.length < 2 || caseData.steps.some((caseStep) => (
+    if (
+      !["secondary", "tertiary"].includes(caseData.careLevel)
+      || caseData.steps.length < 2
+      || caseData.steps.some((caseStep) => (
       caseStep.opts.length !== 5 || caseStep.opts.filter((choice) => choice.ok).length !== 1
-    ))) {
+      ))
+    ) {
       throw new Error(`${caseData.dx}の設問データが不正です。`);
     }
   });
@@ -941,28 +1083,96 @@ const shuffle = (arr) => {
   }
   return a;
 };
+const interleaveCaseBuckets = (buckets) => {
+  const queues = buckets.map(({ indices, take }) => ({
+    indices: shuffle(indices),
+    take,
+    cursor: 0,
+  }));
+  const order = [];
+  while (queues.some((queue) => queue.cursor < queue.indices.length)) {
+    queues.forEach((queue) => {
+      for (
+        let count = 0;
+        count < queue.take && queue.cursor < queue.indices.length;
+        count += 1
+      ) {
+        order.push(queue.indices[queue.cursor]);
+        queue.cursor += 1;
+      }
+    });
+  }
+  return order;
+};
+export const buildCaseOrder = (cases, hospitalId) => {
+  const all = cases.map((_, index) => index);
+  if (hospitalId === "secret") return shuffle(all);
+  const secondary = all.filter((index) => (
+    !cases[index].minor && cases[index].careLevel === "secondary"
+  ));
+  const tertiary = all.filter((index) => (
+    !cases[index].minor && cases[index].careLevel === "tertiary"
+  ));
+  const minor = all.filter((index) => cases[index].minor);
+  if (hospitalId === "tertiary") {
+    return [
+      ...interleaveCaseBuckets([
+        { indices: tertiary, take: 4 },
+        { indices: secondary, take: 1 },
+      ]),
+      ...shuffle(minor),
+    ];
+  }
+  return interleaveCaseBuckets([
+    { indices: secondary, take: 3 },
+    { indices: minor, take: 1 },
+    { indices: tertiary, take: 1 },
+  ]);
+};
 const fmtClock = (gameSec, startMin) => {
   const total = startMin + Math.floor(gameSec / 60);
   return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 };
 const rand = (n) => Math.floor(Math.random() * n);
 const pushLog = (log, msg) => [msg, ...log].slice(0, 4);
-const newGame = (modeId = "short", levelId = "student") => {
+const createBed = (caseData, arrivedAt) => ({
+  case: caseData,
+  steps: caseData.steps.map((caseStep) => ({
+    ...caseStep,
+    opts: shuffle(caseStep.opts),
+  })),
+  stepIdx: 0,
+  arrivedAt,
+  limit: caseData.limit * 60,
+  action: null,
+  feedback: null,
+  mistakes: 0,
+});
+export const newGame = (
+  modeId = "short",
+  levelId = "student",
+  hospitalId = "secondary",
+) => {
   const mode = GAME_MODES[modeId] ?? GAME_MODES.short;
   const level = CASE_LEVELS[levelId] ?? CASE_LEVELS.student;
+  const hospital = HOSPITAL_MODES[hospitalId] ?? HOSPITAL_MODES.secondary;
   return ({
   phase: "play", t: 0, praise: 0, bad: 0,
   modeId: mode.id,
   modeTitle: mode.title,
   levelId: level.id,
   levelTitle: level.title,
+  hospitalId: hospital.id,
+  hospitalTitle: hospital.title,
+  bedCount: hospital.bedCount,
   shiftStartMin: mode.startMin,
   shiftSec: mode.shiftSec,
   endClock: mode.endClock,
   realMinutes: mode.realMinutes,
-  beds: [null, null, null, null], incoming: null,
-  order: shuffle(level.cases.map((_, i) => i)), ci: 0,
-  nextSpawnAt: 60 + rand(120), emptySince: 0, focus: 0, fx: null, log: [],
+  beds: Array.from({ length: hospital.bedCount }, () => null), incoming: null,
+  order: buildCaseOrder(level.cases, hospital.id), ci: 0,
+  nextSpawnAt: hospital.id === "secret" ? 30 : 60 + rand(120),
+  emptySince: 0, focus: 0, fx: null, log: [],
   stats: { treated: 0, refused: 0, crashed: 0, wrongs: 0, picks: 0, done: [] },
   });
 };
@@ -988,6 +1198,12 @@ export default function NightShiftER() {
       clearSavedProgress();
     }
   }, [g.modeId, g.phase]);
+
+  useEffect(() => {
+    if (g.phase === "end" && ["secondary", "tertiary"].includes(g.hospitalId)) {
+      recordHospitalClear(g.hospitalId);
+    }
+  }, [g.hospitalId, g.phase]);
 
   const tick = (s) => {
     if (s.phase !== "play") return s;
@@ -1038,13 +1254,30 @@ export default function NightShiftER() {
     const fever = score > 5;
     const occupied = n.beds.filter(Boolean).length;
     if (occupied > 0 || n.incoming) n.emptySince = n.t;
-    if (!n.incoming) {
+    if (n.hospitalId === "secret") {
+      n.incoming = null;
+      if (occupied < n.beds.length && n.t >= n.nextSpawnAt) {
+        const bedIndex = n.beds.findIndex((bed) => !bed);
+        const caseIdx = n.order[n.ci % n.order.length];
+        const caseData = cases[caseIdx];
+        n.beds[bedIndex] = createBed(caseData, n.t);
+        n.log = pushLog(n.log, `♾️ ${caseData.chief}をBED ${bedIndex + 1}へ自動収容`);
+        if (!n.beds[n.focus]) n.focus = bedIndex;
+        n.ci += 1;
+        if (n.ci % n.order.length === 0) {
+          n.order = buildCaseOrder(cases, "secret");
+        }
+        n.nextSpawnAt = n.t + (fever ? 60 + rand(60) : 90 + rand(120));
+      }
+    } else if (!n.incoming) {
       const mustSpawn = (occupied === 0 && n.t - n.emptySince >= 240)
         || (fever && occupied < 3) || n.t >= n.nextSpawnAt;
       if (mustSpawn) {
         n.incoming = { caseIdx: n.order[n.ci % n.order.length], deadline: n.t + INCOMING_WAIT };
         n.ci += 1;
-        if (n.ci % n.order.length === 0) n.order = shuffle(n.order);
+        if (n.ci % n.order.length === 0) {
+          n.order = buildCaseOrder(cases, n.hospitalId);
+        }
         n.nextSpawnAt = n.t + (fever ? 350 + rand(250) : 700 + rand(500));
       }
     }
@@ -1052,18 +1285,22 @@ export default function NightShiftER() {
     return n;
   };
 
-  const start = (modeId, levelId) => {
+  const start = (modeId, levelId, hospitalId) => {
     gameplayMusic.start();
     if (modeId === "full") clearSavedProgress();
     setSaveError("");
-    setG(newGame(modeId, levelId));
+    setG(newGame(modeId, levelId, hospitalId));
   };
   const resumeSavedGame = (savedGame) => {
     gameplayMusic.start();
     setSaveError("");
     setG({ ...savedGame, phase: "play", fx: null });
   };
-  const retry = () => start(g.modeId ?? "short", g.levelId ?? "student");
+  const retry = () => start(
+    g.modeId ?? "short",
+    g.levelId ?? "student",
+    g.hospitalId ?? "secondary",
+  );
   const pause = () => {
     if (g.modeId === "full" && g.phase === "play") {
       setSaveError("");
@@ -1088,15 +1325,15 @@ export default function NightShiftER() {
     setSaveError("");
     setG({ phase: "title" });
   };
+  const returnToTitle = () => {
+    setSaveError("");
+    setG({ phase: "title" });
+  };
   const accept = (bedIdx) => setG((s) => {
     if (!s.incoming || s.beds[bedIdx]) return s;
     const c = (CASE_LEVELS[s.levelId] ?? CASE_LEVELS.student).cases[s.incoming.caseIdx];
     const beds = [...s.beds];
-    beds[bedIdx] = {
-      case: c, steps: c.steps.map((st) => ({ ...st, opts: shuffle(st.opts) })),
-      stepIdx: 0, arrivedAt: s.t, limit: c.limit * 60,
-      action: null, feedback: null, mistakes: 0,
-    };
+    beds[bedIdx] = createBed(c, s.t);
     return { ...s, beds, incoming: null, focus: bedIdx };
   });
   const refuse = () => setG((s) => {
@@ -1121,8 +1358,8 @@ export default function NightShiftER() {
   });
 
   if (g.phase === "title") return <TitleScreen onStart={start} onResume={resumeSavedGame} />;
-  if (g.phase === "over") return <ResultScreen g={g} fired onRetry={retry} />;
-  if (g.phase === "end") return <ResultScreen g={g} onRetry={retry} />;
+  if (g.phase === "over") return <ResultScreen g={g} fired onRetry={retry} onHome={returnToTitle} />;
+  if (g.phase === "end") return <ResultScreen g={g} onRetry={retry} onHome={returnToTitle} />;
 
   const score = g.praise - g.bad;
   const fever = score > 5;
@@ -1135,7 +1372,10 @@ export default function NightShiftER() {
           <div className="flex items-center gap-2">
             <Ecg width={54} height={22} />
             <span className="font-mono text-emerald-400 text-xl font-bold tracking-wider">{fmtClock(g.t, g.shiftStartMin)}</span>
-            <span className="text-slate-500 text-[10px] leading-tight">{g.levelTitle}<br />{g.modeTitle}・終了 {g.endClock}</span>
+            <span className="text-slate-500 text-[10px] leading-tight">
+              {g.levelTitle}・{HOSPITAL_MODES[g.hospitalId]?.shortTitle ?? "二次救急"}<br />
+              {g.modeTitle}・終了 {g.endClock}
+            </span>
           </div>
           <div className="flex items-center gap-3 text-sm">
             <span className="text-amber-300">褒め <b className="font-mono">{g.praise}</b></span>
@@ -1182,14 +1422,14 @@ export default function NightShiftER() {
       )}
       {g.fx && g.t < g.fx.until && <FxOverlay fx={g.fx} />}
       {g.incoming && <IncomingBanner incoming={g.incoming} t={g.t} beds={g.beds} cases={(CASE_LEVELS[g.levelId] ?? CASE_LEVELS.student).cases} onAccept={accept} onRefuse={refuse} />}
-      <div className="grid grid-cols-4 gap-1.5 px-2 pt-2">
+      <div className={`grid gap-1.5 px-2 pt-2 ${g.beds.length === 10 ? "grid-cols-5" : "grid-cols-4"}`}>
         {g.beds.map((bed, i) => <BedTab key={i} idx={i} bed={bed} t={g.t} active={g.focus === i} onClick={() => setG((s) => ({ ...s, focus: i }))} />)}
       </div>
       <main className="flex-1 px-2 py-2">
         {focusBed
           ? <CasePanel bed={focusBed} bedIdx={g.focus} t={g.t} onChoose={choose} />
           : <div className="h-40 flex items-center justify-center text-slate-600 text-sm border border-dashed border-slate-800 rounded-xl">ベッド{g.focus + 1}は空床</div>}
-        {fever && <FeverStrip />}
+        {fever && <FeverStrip secret={g.hospitalId === "secret"} />}
       </main>
       <footer className="px-3 pb-3 space-y-0.5">
         {g.log.map((m, i) => <div key={`${m}-${i}`} className={`text-[11px] ${i === 0 ? "text-slate-300" : "text-slate-600"}`}>{m}</div>)}
@@ -1300,9 +1540,9 @@ function FxOverlay({ fx }) {
     </div>
   </div>;
 }
-function FeverStrip() {
+function FeverStrip({ secret = false }) {
   return <div className="mt-2 rounded-xl border border-amber-500/50 bg-amber-950/30 overflow-hidden">
-    <div className="flex items-center justify-between px-3 pt-1.5"><span className="text-amber-300 font-black text-sm tracking-widest pulse-soft">🔥 FEVER TIME</span><span className="text-[10px] text-amber-200/70">救急隊が殺到中(常時3床以上稼働)</span></div>
+    <div className="flex items-center justify-between px-3 pt-1.5"><span className="text-amber-300 font-black text-sm tracking-widest pulse-soft">🔥 FEVER TIME</span><span className="text-[10px] text-amber-200/70">{secret ? "搬送間隔がさらに短縮" : "救急隊が殺到中(常時3床以上稼働)"}</span></div>
     <div className="relative h-9"><div className="absolute bottom-1 left-0 right-0 border-b-2 border-dashed border-slate-600/60" /><div className="absolute bottom-2 text-2xl amb-run" style={{ transform: "scaleX(-1)" }}>🚑</div><div className="absolute bottom-2 text-2xl amb-run amb-run2" style={{ transform: "scaleX(-1)" }}>🚑</div></div>
   </div>;
 }
@@ -1355,9 +1595,11 @@ function ActionProgress({ action, t }) {
 function TitleScreen({ onStart, onResume }) {
   const [stage, setStage] = useState("role");
   const [levelId, setLevelId] = useState(null);
+  const [hospitalId, setHospitalId] = useState(null);
   const [modeId, setModeId] = useState(null);
   const [tutorialStep, setTutorialStep] = useState(-1);
   const [savedProgress, setSavedProgress] = useState(() => loadSavedProgress());
+  const [emergencyProgress] = useState(() => loadEmergencyProgress());
   const {
     playing: bgmPlaying,
     loading: bgmLoading,
@@ -1365,11 +1607,18 @@ function TitleScreen({ onStart, onResume }) {
     toggle: toggleBgm,
   } = useTitleBgm();
   const selectedLevel = levelId ? CASE_LEVELS[levelId] : null;
+  const selectedHospital = hospitalId ? HOSPITAL_MODES[hospitalId] : null;
   const selectedMode = modeId ? GAME_MODES[modeId] : null;
-  const tutorialScript = levelId && modeId ? getTutorialScript(levelId, modeId) : [];
+  const tutorialScript = levelId && modeId && hospitalId
+    ? getTutorialScript(levelId, modeId, hospitalId)
+    : [];
+  const secretUnlocked = isSecretUnlocked(emergencyProgress);
   const savedGame = savedProgress?.game;
   const savedLevel = savedGame
     ? (CASE_LEVELS[savedGame.levelId] ?? CASE_LEVELS.student)
+    : null;
+  const savedHospital = savedGame
+    ? (HOSPITAL_MODES[savedGame.hospitalId] ?? HOSPITAL_MODES.secondary)
     : null;
   const savedAt = savedProgress
     ? new Date(savedProgress.savedAt).toLocaleString("ja-JP", {
@@ -1382,6 +1631,11 @@ function TitleScreen({ onStart, onResume }) {
 
   const chooseRole = (id) => {
     setLevelId(id);
+    setStage("hospital");
+  };
+  const chooseHospital = (id) => {
+    if (id === "secret" && !secretUnlocked) return;
+    setHospitalId(id);
     setStage("shift");
   };
   const chooseMode = (id) => {
@@ -1391,16 +1645,23 @@ function TitleScreen({ onStart, onResume }) {
   };
   const backToRole = () => {
     setLevelId(null);
+    setHospitalId(null);
     setModeId(null);
     setTutorialStep(-1);
     setStage("role");
+  };
+  const backToHospital = () => {
+    setHospitalId(null);
+    setModeId(null);
+    setTutorialStep(-1);
+    setStage("hospital");
   };
   const backToShift = () => {
     setModeId(null);
     setTutorialStep(-1);
     setStage("shift");
   };
-  const startSelectedShift = () => onStart(modeId, levelId);
+  const startSelectedShift = () => onStart(modeId, levelId, hospitalId);
   const resume = () => {
     const latest = loadSavedProgress();
     if (latest) onResume(latest.game);
@@ -1441,11 +1702,11 @@ function TitleScreen({ onStart, onResume }) {
     {stage === "role" ? (
       <div className="mt-7 w-full max-w-md">
         <div className="text-center">
-          <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 1 / 3</div>
+          <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 1 / 4</div>
           <h2 className="mt-2 text-xl font-black text-slate-100">
             あなたは医学生ですか？<br />研修医・医師ですか？
           </h2>
-          <p className="mt-2 text-xs text-slate-500">選択したレベルの50症例から出題されます。</p>
+          <p className="mt-2 text-xs text-slate-500">各レベル、主要100例＋軽症20例から出題されます。</p>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3">
           <RoleButton
@@ -1474,6 +1735,7 @@ function TitleScreen({ onStart, onResume }) {
             </div>
             <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-300">
               <span>{savedLevel.title}</span>
+              <span>{savedHospital.shortTitle}</span>
               <span>院内時刻 {fmtClock(savedGame.t, savedGame.shiftStartMin)}</span>
               <span>進行度 {Math.round((savedGame.t / savedGame.shiftSec) * 100)}%</span>
             </div>
@@ -1481,12 +1743,12 @@ function TitleScreen({ onStart, onResume }) {
           </button>
         )}
         <div className="mt-6 space-y-2 text-sm text-slate-400">
-          <Rule icon="🛏️" text="4床を管理し、救急隊からの受入要請に対応します。" />
+          <Rule icon="🛏️" text="通常は4床、シークレットでは10床を同時管理します。" />
           <Rule icon="⏱️" text="現実の1秒で院内時間が30秒進みます。" />
           <Rule icon="🩺" text="処置を選び、患者が急変する前に診療を完遂します。" />
         </div>
       </div>
-    ) : stage === "shift" ? (
+    ) : stage === "hospital" ? (
       <div className="mt-7 w-full max-w-md">
         <button
           type="button"
@@ -1496,9 +1758,57 @@ function TitleScreen({ onStart, onResume }) {
           ← 利用者区分を選び直す
         </button>
         <div className="mt-3 text-center">
-          <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 2 / 3</div>
+          <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 2 / 4</div>
           <div className="mt-2 inline-flex rounded-full border border-sky-700/60 bg-sky-950/40 px-3 py-1 text-xs text-sky-200">
-            {selectedLevel.title}・全50例
+            {selectedLevel.title}・全120例
+          </div>
+          <h2 className="mt-3 text-xl font-black text-slate-100">どちらの病院へ行きますか？</h2>
+          <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            二次救急と三次救急を両方完走すると、シークレットが解放されます。
+          </p>
+        </div>
+        <div className="mt-5 space-y-3">
+          <HospitalButton
+            hospital={HOSPITAL_MODES.secondary}
+            cleared={emergencyProgress.secondary}
+            onClick={() => chooseHospital("secondary")}
+          />
+          <HospitalButton
+            hospital={HOSPITAL_MODES.tertiary}
+            cleared={emergencyProgress.tertiary}
+            onClick={() => chooseHospital("tertiary")}
+          />
+          <HospitalButton
+            hospital={HOSPITAL_MODES.secret}
+            secret
+            locked={!secretUnlocked}
+            onClick={() => chooseHospital("secret")}
+          />
+        </div>
+        {!secretUnlocked && (
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+            <div className={`rounded-lg border px-3 py-2 ${emergencyProgress.secondary ? "border-emerald-700 bg-emerald-950/30 text-emerald-300" : "border-slate-800 bg-slate-900 text-slate-500"}`}>
+              {emergencyProgress.secondary ? "✓" : "○"} 二次救急クリア
+            </div>
+            <div className={`rounded-lg border px-3 py-2 ${emergencyProgress.tertiary ? "border-emerald-700 bg-emerald-950/30 text-emerald-300" : "border-slate-800 bg-slate-900 text-slate-500"}`}>
+              {emergencyProgress.tertiary ? "✓" : "○"} 三次救急クリア
+            </div>
+          </div>
+        )}
+      </div>
+    ) : stage === "shift" ? (
+      <div className="mt-7 w-full max-w-md">
+        <button
+          type="button"
+          onClick={backToHospital}
+          className="text-xs font-bold text-slate-500 transition hover:text-slate-300"
+        >
+          ← 病院を選び直す
+        </button>
+        <div className="mt-3 text-center">
+          <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 3 / 4</div>
+          <div className="mt-2 inline-flex rounded-full border border-sky-700/60 bg-sky-950/40 px-3 py-1 text-xs text-sky-200">
+            {selectedLevel.title}・{selectedHospital.title}・全120例
           </div>
           <h2 className="mt-3 text-xl font-black text-slate-100">どちらの当直にしますか？</h2>
           <p className="mt-2 text-xs text-slate-500">プレイ時間の目安を見て選んでください。</p>
@@ -1529,6 +1839,7 @@ function TitleScreen({ onStart, onResume }) {
     ) : (
       <TutorialStage
         levelId={levelId}
+        hospital={selectedHospital}
         mode={selectedMode}
         script={tutorialScript}
         step={tutorialStep}
@@ -1542,7 +1853,7 @@ function TitleScreen({ onStart, onResume }) {
         onBack={backToShift}
       />
     )}
-    <p className="mb-auto mt-7 text-[10px] text-slate-600">全100症例・各レベル50例 / 学習用シミュレーション</p>
+    <p className="mb-auto mt-7 text-[10px] text-slate-600">全240症例・各レベル120例 / 学習用シミュレーション</p>
   </div>;
 }
 function RoleButton({ icon, title, description, onClick, doctor }) {
@@ -1553,9 +1864,51 @@ function RoleButton({ icon, title, description, onClick, doctor }) {
   >
     <div className="text-3xl">{icon}</div>
     <div className={`mt-2 text-sm font-black ${doctor ? "text-violet-300" : "text-sky-300"}`}>{title}</div>
-    <div className="mt-1 font-mono text-xs text-emerald-400">50症例</div>
+    <div className="mt-1 font-mono text-xs text-emerald-400">120症例</div>
     <div className="mt-2 text-[10px] leading-relaxed text-slate-400">{description}</div>
     <div className="mt-3 text-right text-xs font-bold text-slate-500">選択 →</div>
+  </button>;
+}
+function HospitalButton({
+  hospital,
+  onClick,
+  cleared = false,
+  locked = false,
+  secret = false,
+}) {
+  return <button
+    type="button"
+    onClick={onClick}
+    disabled={locked}
+    className={`relative w-full rounded-xl border p-4 text-left shadow-lg transition active:scale-[0.99] ${
+      locked
+        ? "cursor-not-allowed border-slate-800 bg-slate-900/70 opacity-60"
+        : secret
+          ? "border-fuchsia-500/60 bg-fuchsia-950/30 shadow-fuchsia-950/40 hover:bg-fuchsia-900/40"
+          : hospital.id === "tertiary"
+            ? "border-rose-500/55 bg-rose-950/25 shadow-rose-950/30 hover:bg-rose-900/35"
+            : "border-sky-500/55 bg-sky-950/25 shadow-sky-950/30 hover:bg-sky-900/35"
+    }`}
+  >
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <div className={`text-base font-black ${
+          secret ? "text-fuchsia-300" : hospital.id === "tertiary" ? "text-rose-300" : "text-sky-300"
+        }`}>
+          {hospital.icon} {hospital.title}
+        </div>
+        <div className="mt-1 text-[11px] leading-relaxed text-slate-400">{hospital.description}</div>
+      </div>
+      {cleared && <span className="shrink-0 rounded-full border border-emerald-600/60 bg-emerald-950/50 px-2 py-1 text-[9px] font-bold text-emerald-300">CLEAR</span>}
+      {locked && <span className="shrink-0 text-xl">🔒</span>}
+    </div>
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      <span className="rounded-full bg-slate-950/60 px-2 py-1 text-[9px] text-slate-400">{hospital.bedCount}床</span>
+      <span className="rounded-full bg-slate-950/60 px-2 py-1 text-[9px] text-slate-400">{hospital.caseMix}</span>
+    </div>
+    <div className={`mt-3 text-right text-xs font-bold ${locked ? "text-slate-600" : secret ? "text-fuchsia-400" : "text-slate-400"}`}>
+      {locked ? "二次・三次のクリアで解放" : "この病院を選ぶ →"}
+    </div>
   </button>;
 }
 function ModeButton({ title, hours, duration, description, onClick, full }) {
@@ -1569,6 +1922,7 @@ function ModeButton({ title, hours, duration, description, onClick, full }) {
 }
 function TutorialStage({
   levelId,
+  hospital,
   mode,
   script,
   step,
@@ -1592,13 +1946,13 @@ function TutorialStage({
         ← 当直モードを選び直す
       </button>
       <div className="mt-3 text-center">
-        <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 3 / 3</div>
+        <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 4 / 4</div>
         <div className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs ${modeTone === "amber" ? "border-amber-700/60 bg-amber-950/40 text-amber-200" : "border-emerald-700/60 bg-emerald-950/40 text-emerald-200"}`}>
-          {mode?.title}・{player.name}
+          {hospital?.shortTitle}・{mode?.title}・{player.name}
         </div>
         <h2 className="mt-3 text-xl font-black text-slate-100">チュートリアルを見ますか？</h2>
         <p className="mt-2 text-xs leading-relaxed text-slate-500">
-          院長との会話で、受入・診療・スコア・{mode?.title}の操作を約1分で確認できます。
+          院長との会話で、{hospital?.shortTitle}の役割・受入・診療・{mode?.title}の操作を約1分で確認できます。
         </p>
       </div>
       <div className="mt-5 flex items-end justify-center gap-6">
@@ -1726,20 +2080,41 @@ function CharacterAvatar({ character, active = false, compact = false }) {
 function Rule({ icon, text }) {
   return <div className="flex gap-2.5 items-start"><span className="shrink-0">{icon}</span><span className="leading-snug">{text}</span></div>;
 }
-function ResultScreen({ g, fired, onRetry }) {
+function ResultScreen({ g, fired, onRetry, onHome }) {
   const score = g.praise - g.bad;
   const { treated, refused, crashed, wrongs, picks } = g.stats;
   const acc = picks > 0 ? Math.round(((picks - wrongs) / picks) * 100) : 0;
   const rank = fired ? "—" : score >= 12 ? "S" : score >= 8 ? "A" : score >= 4 ? "B" : score >= 0 ? "C" : "D";
   const rankMsg = { S: "院長「君に病院を継いでほしい」", A: "院長「素晴らしい当直だった」", B: "院長「まずまずだな」", C: "院長「…次に期待する」", D: "院長「明日、院長室へ」", "—": "" }[rank];
+  const clearPreview = !fired && ["secondary", "tertiary"].includes(g.hospitalId)
+    ? { ...loadEmergencyProgress(), [g.hospitalId]: true }
+    : loadEmergencyProgress();
+  const secretJustAvailable = !fired && isSecretUnlocked(clearPreview);
   return <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col items-center px-5 py-10">
-    <div className="text-xs text-sky-300 mb-2">{g.levelTitle}・全50例</div>
+    <div className="text-xs text-sky-300 mb-2">{g.levelTitle}・全120例</div>
+    <div className="mb-2 rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-[10px] text-slate-400">
+      {HOSPITAL_MODES[g.hospitalId]?.title ?? "二次救急病院"}
+    </div>
     {fired ? <><div className="text-5xl">💢</div><h1 className="text-2xl font-black mt-3 text-rose-400">院長室へ呼び出し</h1><p className="text-sm text-slate-400 mt-2 text-center">残念ポイントが溜まりすぎた。<br />当直は途中交代となった…</p></> : <><div className="font-mono text-emerald-400 tracking-[0.3em] text-xs">{g.endClock} — {g.modeTitle}終了</div><h1 className="text-2xl font-black mt-2">当直、お疲れさまでした</h1><div className="mt-5 text-center"><div className="text-6xl font-black text-emerald-400">{rank}</div><div className="text-xs text-slate-400 mt-1">{rankMsg}</div></div></>}
+    {!fired && ["secondary", "tertiary"].includes(g.hospitalId) && (
+      <div className="mt-4 rounded-xl border border-emerald-600/60 bg-emerald-950/30 px-4 py-3 text-center text-sm font-black text-emerald-300">
+        ✓ {HOSPITAL_MODES[g.hospitalId].shortTitle} CLEAR
+      </div>
+    )}
+    {secretJustAvailable && g.hospitalId !== "secret" && (
+      <div className="mt-2 rounded-xl border border-fuchsia-500/60 bg-fuchsia-950/30 px-4 py-3 text-center">
+        <div className="text-sm font-black text-fuchsia-300">🔓 SECRET「断らない救急」解放</div>
+        <div className="mt-1 text-[10px] text-fuchsia-200/70">タイトルから10床の極限モードを選べます。</div>
+      </div>
+    )}
     <div className="mt-7 w-full max-w-sm grid grid-cols-2 gap-2 text-sm">
       <Stat label="最終スコア" value={score >= 0 ? `+${score}` : score} accent /><Stat label="正答率" value={`${acc}%`} /><Stat label="完遂した症例" value={treated} /><Stat label="受入拒否" value={refused} /><Stat label="急変させた患者" value={crashed} /><Stat label="判断ミス" value={wrongs} />{!fired && <Stat label="朝番へ引き継ぎ" value={g.beds.filter(Boolean).length} />}
     </div>
     {g.stats.done.length > 0 && <div className="mt-5 w-full max-w-sm"><div className="text-[11px] text-slate-500 mb-1.5">今夜の診断リスト</div><div className="flex flex-wrap gap-1.5">{g.stats.done.map((d, i) => <span key={`${d.dx}-${i}`} className={`text-[11px] px-2 py-1 rounded-full border ${d.ok ? "border-emerald-700 text-emerald-300" : "border-rose-700 text-rose-300"}`}>{d.ok ? "✓" : "✗"} {d.dx}</span>)}</div></div>}
-    <button onClick={onRetry} className="mt-8 px-10 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold transition">もう一度当直する</button>
+    <div className="mt-8 grid w-full max-w-sm grid-cols-2 gap-2">
+      <button onClick={onHome} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-slate-300 transition hover:border-sky-600 hover:text-sky-300 active:scale-95">タイトルへ戻る</button>
+      <button onClick={onRetry} className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-500 active:scale-95">同じ条件でもう一度</button>
+    </div>
   </div>;
 }
 function Stat({ label, value, accent }) {
