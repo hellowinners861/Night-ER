@@ -1,38 +1,305 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 
-const MENU_DECISION_URL = `${import.meta.env.BASE_URL}audio/decision-51.mp3`;
-const GAME_CHOICE_URL = `${import.meta.env.BASE_URL}audio/decision-53.mp3`;
-const PATIENT_WARNING_URL = `${import.meta.env.BASE_URL}audio/warning-red.mp3`;
-const ICU_WARNING_URL = `${import.meta.env.BASE_URL}audio/warning-icu.mp3`;
-const GOOD_DOCTOR_URL = `${import.meta.env.BASE_URL}audio/success-good-doctor.mp3`;
+const SFX = {
+  menuDecision: {
+    url: `${import.meta.env.BASE_URL}audio/decision-51.mp3`,
+    volume: 0.9,
+  },
+  gameChoice: {
+    url: `${import.meta.env.BASE_URL}audio/decision-53.mp3`,
+    volume: 0.95,
+  },
+  patientWarning: {
+    url: `${import.meta.env.BASE_URL}audio/warning-red.mp3`,
+    volume: 1,
+  },
+  icuWarning: {
+    url: `${import.meta.env.BASE_URL}audio/warning-icu.mp3`,
+    volume: 1,
+  },
+  goodDoctor: {
+    url: `${import.meta.env.BASE_URL}audio/success-good-doctor.mp3`,
+    volume: 1,
+  },
+};
 
-const playOneShot = (source, volume) => {
-  const audio = new Audio(source);
-  audio.volume = volume;
+const SILENCE_THRESHOLD_RATIO = 10 ** (-50 / 20);
+const SILENCE_PRE_ROLL_SECONDS = 0.005;
+const FALLBACK_POOL_SIZE = 3;
+
+const decodedSfx = new Map();
+const loadingSfx = new Map();
+const failedSfx = new Set();
+const fallbackPools = new Map();
+let decodeContext = null;
+let playbackContext = null;
+
+const getDecodeContext = () => {
+  if (decodeContext) return decodeContext;
+  if (typeof window === "undefined") return null;
+
+  const OfflineAudioContextClass =
+    window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (OfflineAudioContextClass) {
+    try {
+      decodeContext = new OfflineAudioContextClass(1, 1, 44100);
+      return decodeContext;
+    } catch {
+      // 通常のAudioContextでのデコードへフォールバックする。
+    }
+  }
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  try {
+    decodeContext = new AudioContextClass();
+    return decodeContext;
+  } catch {
+    return null;
+  }
+};
+
+const getPlaybackContext = () => {
+  if (playbackContext && playbackContext.state !== "closed") {
+    return playbackContext;
+  }
+  if (typeof window === "undefined") return null;
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+
+  try {
+    playbackContext = new AudioContextClass({ latencyHint: "interactive" });
+  } catch {
+    try {
+      playbackContext = new AudioContextClass();
+    } catch {
+      return null;
+    }
+  }
+  return playbackContext;
+};
+
+const findAudibleStart = (buffer) => {
+  const channels = Array.from(
+    { length: buffer.numberOfChannels },
+    (_, index) => buffer.getChannelData(index),
+  );
+  const blockSize = Math.max(32, Math.round(buffer.sampleRate * 0.003));
+  const blockCount = Math.ceil(buffer.length / blockSize);
+  const rmsByBlock = new Float32Array(blockCount);
+  let peakRms = 0;
+
+  for (let block = 0; block < blockCount; block += 1) {
+    const start = block * blockSize;
+    const end = Math.min(buffer.length, start + blockSize);
+    let sum = 0;
+    let sampleCount = 0;
+
+    for (const samples of channels) {
+      for (let index = start; index < end; index += 1) {
+        sum += samples[index] ** 2;
+        sampleCount += 1;
+      }
+    }
+
+    const rms = Math.sqrt(sum / Math.max(1, sampleCount));
+    rmsByBlock[block] = rms;
+    peakRms = Math.max(peakRms, rms);
+  }
+
+  if (peakRms === 0) return 0;
+  const threshold = peakRms * SILENCE_THRESHOLD_RATIO;
+
+  for (let block = 0; block < blockCount; block += 1) {
+    if (rmsByBlock[block] >= threshold) {
+      return Math.max(
+        0,
+        block * blockSize / buffer.sampleRate - SILENCE_PRE_ROLL_SECONDS,
+      );
+    }
+  }
+
+  return 0;
+};
+
+const loadSfx = (config) => {
+  const cached = decodedSfx.get(config.url);
+  if (cached) return Promise.resolve(cached);
+  if (failedSfx.has(config.url)) return Promise.resolve(null);
+
+  const pending = loadingSfx.get(config.url);
+  if (pending) return pending;
+
+  const context = getDecodeContext();
+  if (!context) return Promise.resolve(null);
+
+  const request = fetch(config.url)
+    .then((response) => {
+      if (!response.ok) throw new Error(`SFX load failed: ${response.status}`);
+      return response.arrayBuffer();
+    })
+    .then((bytes) => new Promise((resolve, reject) => {
+      context.decodeAudioData(bytes, resolve, reject);
+    }))
+    .then((buffer) => {
+      const decoded = {
+        buffer,
+        startAt: findAudibleStart(buffer),
+      };
+      decodedSfx.set(config.url, decoded);
+      return decoded;
+    })
+    .catch(() => {
+      failedSfx.add(config.url);
+      return null;
+    })
+    .finally(() => {
+      loadingSfx.delete(config.url);
+    });
+
+  loadingSfx.set(config.url, request);
+  return request;
+};
+
+const preloadAllSfx = () => {
+  Object.values(SFX).forEach((config) => {
+    getFallbackPool(config);
+    void loadSfx(config);
+  });
+};
+
+const createFallbackAudio = (config) => {
+  const audio = new Audio(config.url);
+  audio.preload = "auto";
+  audio.load();
+  return audio;
+};
+
+const getFallbackPool = (config) => {
+  if (typeof Audio === "undefined") return [];
+
+  const cached = fallbackPools.get(config.url);
+  if (cached) return cached;
+
+  const pool = [createFallbackAudio(config)];
+  fallbackPools.set(config.url, pool);
+  return pool;
+};
+
+const playFallback = (config) => {
+  const pool = getFallbackPool(config);
+  if (pool.length === 0) return;
+
+  let audio = pool.find((candidate) => candidate.paused || candidate.ended);
+  if (!audio && pool.length < FALLBACK_POOL_SIZE) {
+    audio = createFallbackAudio(config);
+    pool.push(audio);
+  }
+  audio ??= pool[0];
+  audio.pause();
+  audio.currentTime = 0;
+  audio.volume = config.volume;
   audio.play().catch(() => {
     // ブラウザ側で再生が拒否された場合も、ボタン操作自体は妨げない。
   });
 };
 
+const playDecoded = (config, decoded) => {
+  const context = getPlaybackContext();
+  if (!context) {
+    playFallback(config);
+    return;
+  }
+
+  const start = () => {
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    source.buffer = decoded.buffer;
+    gain.gain.value = config.volume;
+    source.connect(gain);
+    gain.connect(context.destination);
+    source.onended = () => {
+      source.disconnect();
+      gain.disconnect();
+    };
+    source.start(0, decoded.startAt);
+  };
+
+  if (context.state === "running") {
+    start();
+    return;
+  }
+
+  void context.resume()
+    .then(() => {
+      if (context.state === "running") start();
+      else playFallback(config);
+    })
+    .catch(() => {
+      playFallback(config);
+    });
+};
+
+const playOneShot = (config) => {
+  const cached = decodedSfx.get(config.url);
+  if (cached) {
+    playDecoded(config, cached);
+    return;
+  }
+
+  playFallback(config);
+  void loadSfx(config);
+};
+
+const primePlaybackContext = () => {
+  window.removeEventListener("pointerdown", primePlaybackContext, true);
+  window.removeEventListener("keydown", primePlaybackContext, true);
+
+  const context = getPlaybackContext();
+  if (context && context.state !== "running" && context.state !== "closed") {
+    void context.resume().catch(() => {
+      // 実際の再生操作でもう一度resumeする。
+    });
+  }
+};
+
+if (typeof window !== "undefined") {
+  preloadAllSfx();
+  window.addEventListener("pointerdown", primePlaybackContext, {
+    capture: true,
+    once: true,
+    passive: true,
+  });
+  window.addEventListener("keydown", primePlaybackContext, {
+    capture: true,
+    once: true,
+  });
+}
+
 export function useButtonSfx() {
+  useEffect(() => {
+    preloadAllSfx();
+  }, []);
+
   const playMenuDecision = useCallback(() => {
-    playOneShot(MENU_DECISION_URL, 0.9);
+    playOneShot(SFX.menuDecision);
   }, []);
 
   const playGameChoice = useCallback(() => {
-    playOneShot(GAME_CHOICE_URL, 0.95);
+    playOneShot(SFX.gameChoice);
   }, []);
 
   const playPatientWarning = useCallback(() => {
-    playOneShot(PATIENT_WARNING_URL, 1);
+    playOneShot(SFX.patientWarning);
   }, []);
 
   const playIcuWarning = useCallback(() => {
-    playOneShot(ICU_WARNING_URL, 1);
+    playOneShot(SFX.icuWarning);
   }, []);
 
   const playGoodDoctor = useCallback(() => {
-    playOneShot(GOOD_DOCTOR_URL, 1);
+    playOneShot(SFX.goodDoctor);
   }, []);
 
   return {
