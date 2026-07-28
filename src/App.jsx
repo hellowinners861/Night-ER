@@ -2140,9 +2140,20 @@ function TutorialStage({
     </div>
   </div>;
 }
-function CharacterAvatar({ character, active = false, compact = false }) {
+function CharacterAvatar({
+  character,
+  active = false,
+  compact = false,
+  mini = false,
+}) {
   return <div className={`shrink-0 text-center transition ${active ? "opacity-100" : "opacity-80"}`}>
-    <div className={`relative overflow-hidden rounded-2xl border-2 shadow-lg ${compact ? "h-28 w-20 sm:h-32 sm:w-24" : "h-32 w-24"} ${character.frameClass} ${active ? "ring-2 ring-white/10" : ""}`}>
+    <div className={`relative overflow-hidden border-2 shadow-lg ${
+      mini
+        ? "h-16 w-12 rounded-xl"
+        : compact
+          ? "h-28 w-20 rounded-2xl sm:h-32 sm:w-24"
+          : "h-32 w-24 rounded-2xl"
+    } ${character.frameClass} ${active ? "ring-2 ring-white/10" : ""}`}>
       {character.imageSrc ? (
         <img
           src={character.imageSrc}
@@ -2151,35 +2162,356 @@ function CharacterAvatar({ character, active = false, compact = false }) {
         />
       ) : (
         <div className="flex h-full flex-col items-center justify-center">
-          <div className={`text-4xl font-black ${character.textClass}`}>{character.initial}</div>
-          <div className="mt-2 rounded bg-slate-950/70 px-2 py-1 font-mono text-[8px] tracking-wider text-slate-500">
+          <div className={`${mini ? "text-xl" : "text-4xl"} font-black ${character.textClass}`}>{character.initial}</div>
+          <div className={`${mini ? "mt-1 px-1 py-0.5 text-[6px]" : "mt-2 px-2 py-1 text-[8px]"} rounded bg-slate-950/70 font-mono tracking-wider text-slate-500`}>
             仮画像
           </div>
         </div>
       )}
     </div>
-    <div className={`mt-1.5 text-[11px] font-black ${character.textClass}`}>{character.name}</div>
+    <div className={`${mini ? "mt-1 text-[9px]" : "mt-1.5 text-[11px]"} font-black ${character.textClass}`}>{character.name}</div>
   </div>;
 }
 function Rule({ icon, text }) {
   return <div className="flex gap-2.5 items-start"><span className="shrink-0">{icon}</span><span className="leading-snug">{text}</span></div>;
 }
-function ResultScreen({ g, fired, onRetry, onHome }) {
+
+const RESULT_TIERS = {
+  s: {
+    rank: "S",
+    label: "卓越した当直",
+    kicker: "OUTSTANDING",
+    rankClass: "text-emerald-400",
+    badgeClass: "border-emerald-500/60 bg-emerald-950/50 text-emerald-300",
+    panelClass: "border-emerald-700/50 bg-emerald-950/20",
+    meterClass: "bg-emerald-400",
+  },
+  a: {
+    rank: "A",
+    label: "素晴らしい当直",
+    kicker: "EXCELLENT",
+    rankClass: "text-sky-400",
+    badgeClass: "border-sky-500/60 bg-sky-950/50 text-sky-300",
+    panelClass: "border-sky-700/50 bg-sky-950/20",
+    meterClass: "bg-sky-400",
+  },
+  b: {
+    rank: "B",
+    label: "安定した当直",
+    kicker: "SOLID",
+    rankClass: "text-teal-400",
+    badgeClass: "border-teal-500/60 bg-teal-950/50 text-teal-300",
+    panelClass: "border-teal-700/50 bg-teal-950/20",
+    meterClass: "bg-teal-400",
+  },
+  c: {
+    rank: "C",
+    label: "ぎりぎりの完遂",
+    kicker: "NEEDS REVIEW",
+    rankClass: "text-amber-400",
+    badgeClass: "border-amber-500/60 bg-amber-950/50 text-amber-300",
+    panelClass: "border-amber-700/50 bg-amber-950/20",
+    meterClass: "bg-amber-400",
+  },
+  d: {
+    rank: "D",
+    label: "要改善",
+    kicker: "WARNING",
+    rankClass: "text-orange-400",
+    badgeClass: "border-orange-500/60 bg-orange-950/50 text-orange-300",
+    panelClass: "border-orange-700/50 bg-orange-950/20",
+    meterClass: "bg-orange-400",
+  },
+  fired: {
+    rank: "—",
+    label: "当直途中交代",
+    kicker: "SHIFT TERMINATED",
+    rankClass: "text-rose-400",
+    badgeClass: "border-rose-500/60 bg-rose-950/50 text-rose-300",
+    panelClass: "border-rose-700/50 bg-rose-950/20",
+    meterClass: "bg-rose-500",
+  },
+};
+
+const formatSignedScore = (score) => score > 0 ? `+${score}` : score === 0 ? "±0" : `${score}`;
+
+const getResultTier = (score, fired) => {
+  if (fired) return RESULT_TIERS.fired;
+  if (score >= 12) return RESULT_TIERS.s;
+  if (score >= 8) return RESULT_TIERS.a;
+  if (score >= 4) return RESULT_TIERS.b;
+  if (score >= 0) return RESULT_TIERS.c;
+  return RESULT_TIERS.d;
+};
+
+const getResultFocus = (g, acc) => {
+  const stats = g.stats;
+  if (stats.crashed > 0) {
+    return `急変させた${stats.crashed}件は必ず振り返れ。救えた症例の陰に隠してはいけない。`;
+  }
+  if (stats.refused > 0) {
+    return `受入拒否${stats.refused}件の判断も見直せ。満床でも、次の一手はあったはずだ。`;
+  }
+  if (stats.wrongs > 0) {
+    return `判断ミス${stats.wrongs}回は、正解だけでなく迷った理由まで記録に残せ。`;
+  }
+  if (g.bad === 0 && g.praise > 0) {
+    return `残念ポイントゼロは立派だ。正答率${acc}%の安定感を次にも持ってこい。`;
+  }
+  if (g.praise === 0 && g.bad === 0) {
+    return "褒めも残念もゼロだ。無事に終えたが、次は診療を前へ進める一歩を増やそう。";
+  }
+  return `完遂${stats.treated}件。今夜の判断を、次の当直でも再現できる形にしておけ。`;
+};
+
+const getResultEvaluation = (g, fired, acc) => {
+  const score = g.praise - g.bad;
+  const tier = getResultTier(score, fired);
+  const fullComplete = g.modeId === "full" && !fired;
+  const playerId = g.levelId === "doctor" ? "doctor" : "student";
+  const scoreText = formatSignedScore(score);
+  const scoreFact = `褒め${g.praise}、残念${g.bad}、院長メーター${scoreText}。`;
+  const focus = getResultFocus(g, acc);
+
+  let assessment;
+  if (fired) {
+    assessment = "残念だが、患者安全のため今夜はここで交代だ。";
+  } else if (tier === RESULT_TIERS.s) {
+    assessment = g.bad === 0
+      ? "見事だ。速さも判断も、今夜の救急を支えていた。"
+      : "傷はあったが、それ以上に救った。立て直しまで含めて見事だった。";
+  } else if (tier === RESULT_TIERS.a) {
+    assessment = "素晴らしい当直だった。褒めが残念をしっかり上回っている。";
+  } else if (tier === RESULT_TIERS.b) {
+    assessment = "まずまずだ。危ない場面はあったが、当直を前へ進めた。";
+  } else if (tier === RESULT_TIERS.c) {
+    assessment = "終えはしたが、白衣一枚ぶんの差だったな。";
+  } else {
+    assessment = "終了時刻には届いたが、完遂と合格は同じではない。";
+  }
+
+  const shortReplies = {
+    student: {
+      s: g.bad === 0
+        ? "ありがとうございます！　でも、院長に褒められると次の搬送が来そうで怖いです。"
+        : "失敗したところから、焦って崩れなくてよかったです。",
+      a: "途中は必死でした。終わってみると、少し自信になりました。",
+      b: "「まずまず」は、褒められていると思っていいですか？",
+      c: "最後まで来られたのが、まだ少し信じられません……。",
+      d: "すみません。目の前の処置だけで、周りが見えなくなりました。",
+      fired: "交代……。でも、逃げずに今夜の判断を振り返ります。",
+    },
+    doctor: {
+      s: g.bad === 0
+        ? "ありがとうございます。混雑時も優先順位を崩さずに済みました。"
+        : "ミスの後に優先順位を組み直せたのが大きかったです。",
+      a: "大きく崩さず、診療と病床運用を両立できました。",
+      b: "改善点はありますが、引き継ぎ可能な形で終えられました。",
+      c: "優先順位の更新が遅れました。結果以上に危うい当直でした。",
+      d: "受入と再評価の配分を崩しました。記録から立て直します。",
+      fired: "異論ありません。引き継ぎ後、急変と判断遅延を時系列で検証します。",
+    },
+  };
+
+  const tierId = fired
+    ? "fired"
+    : tier === RESULT_TIERS.s
+      ? "s"
+      : tier === RESULT_TIERS.a
+        ? "a"
+        : tier === RESULT_TIERS.b
+          ? "b"
+          : tier === RESULT_TIERS.c
+            ? "c"
+            : "d";
+
+  let playerReply = shortReplies[playerId][tierId];
+  if (fullComplete) {
+    if (playerId === "student") {
+      playerReply = ["s", "a"].includes(tierId)
+        ? "ありがとうございます。朝日がこんなにまぶしいとは思いませんでした。少しだけ、自信がつきました。"
+        : "ありがとうございます。朝まで立っていられましたが、見落とした場面をきちんと復習します。";
+    } else {
+      playerReply = ["s", "a"].includes(tierId)
+        ? "ありがとうございます。朝番への引き継ぎまで、責任を持って終えます。"
+        : "ありがとうございます。完遂に甘えず、引き継ぎ後に判断の遅れを検証します。";
+    }
+  }
+
+  const roleClosing = playerId === "student"
+    ? fired
+      ? "白衣まで置いていくな。復習して戻ってこい。"
+      : tierId === "s"
+        ? "その警戒心があれば十分だ。今日は胸を張れ。"
+        : "残念ポイントの原因を一つずつ言葉にしろ。次はそこで止まれる。"
+    : fired
+      ? "責任は改善で示せ。白衣はまだ置いていかなくていい。"
+      : tierId === "s"
+        ? "結果を再現できる形で、後輩にも残してくれ。"
+        : "振り返りを具体策に変えろ。次は残念ポイントを一つ減らそう。";
+
+  const fullClosing = playerId === "student"
+    ? "その前に水分を取れ。倒れたら、今度は君が患者だ。"
+    : "引き継ぎまでが当直だ。終えたら、今日は胸を張って休め。";
+
+  const openingText = fullComplete
+    ? "08:00だ。17時からの15時間、最後まで持ち場を守ったな。まずは本当にお疲れさま。"
+    : `${scoreFact} ${assessment}`;
+  const closingText = fullComplete
+    ? `${scoreFact} ${assessment} ${focus} ${fullClosing}`
+    : `${focus} ${roleClosing}`;
+
+  return {
+    ...tier,
+    score,
+    scoreText,
+    fullComplete,
+    meterLabel: fired
+      ? "交代"
+      : score < 0
+        ? "警戒"
+        : score < 4
+          ? "様子見"
+          : score < 8
+            ? "信頼"
+            : score < 12
+              ? "高評価"
+              : "絶大な信頼",
+    meterPercent: Math.max(0, Math.min(100, ((score + 5) / 20) * 100)),
+    dialogue: [
+      {
+        speaker: "director",
+        heading: fullComplete ? "朝を迎えて" : fired ? "交代命令" : "院長からの講評",
+        text: openingText,
+      },
+      {
+        speaker: playerId,
+        heading: fullComplete ? "当直を終えて" : "今夜の振り返り",
+        text: playerReply,
+      },
+      {
+        speaker: "director",
+        heading: fullComplete ? "引き継ぎの前に" : "次の当直へ",
+        text: closingText,
+      },
+    ],
+  };
+};
+
+function DirectorMeter({ evaluation }) {
+  return (
+    <section className="mt-5 w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-black tracking-[0.22em] text-slate-500">DIRECTOR METER</div>
+          <div className="mt-1 text-sm font-black text-slate-200">院長メーター・{evaluation.meterLabel}</div>
+        </div>
+        <div className={`font-mono text-2xl font-black ${evaluation.rankClass}`}>{evaluation.scoreText}</div>
+      </div>
+      <div className="relative mt-4">
+        <div className="h-2 overflow-hidden rounded-full bg-gradient-to-r from-rose-600 via-amber-400 to-emerald-500">
+          <div
+            className="h-full bg-slate-950/45"
+            style={{ width: `${100 - evaluation.meterPercent}%`, marginLeft: `${evaluation.meterPercent}%` }}
+          />
+        </div>
+        <div
+          className={`absolute top-1/2 h-5 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-lg ${evaluation.meterClass}`}
+          style={{ left: `${evaluation.meterPercent}%` }}
+        />
+      </div>
+      <div className="mt-2 flex justify-between font-mono text-[8px] text-slate-600">
+        <span>-5 交代</span>
+        <span>±0</span>
+        <span>+5</span>
+        <span>+10</span>
+        <span>+15</span>
+      </div>
+    </section>
+  );
+}
+
+function ResultDialogue({ evaluation }) {
+  return (
+    <section className={`mt-5 w-full max-w-xl rounded-2xl border p-4 shadow-2xl ${evaluation.panelClass}`}>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-[10px] font-black tracking-[0.2em] text-slate-500">POST-SHIFT REVIEW</div>
+        <div className={`rounded-full border px-2 py-1 text-[9px] font-black tracking-wider ${evaluation.badgeClass}`}>
+          {evaluation.kicker}
+        </div>
+      </div>
+      <div className="space-y-3">
+        {evaluation.dialogue.map((line, index) => {
+          const character = TUTORIAL_CHARACTERS[line.speaker];
+          const isDirector = line.speaker === "director";
+          return (
+            <div
+              key={`${line.speaker}-${line.heading}`}
+              className={`dialogue-in flex items-end gap-2.5 ${isDirector ? "" : "flex-row-reverse"}`}
+              style={{ animationDelay: `${index * 0.08}s` }}
+            >
+              <CharacterAvatar character={character} active mini />
+              <div className={`relative flex-1 rounded-2xl border px-3 py-2.5 ${
+                isDirector
+                  ? "border-amber-700/50 bg-amber-950/35"
+                  : line.speaker === "doctor"
+                    ? "border-violet-700/50 bg-violet-950/35"
+                    : "border-sky-700/50 bg-sky-950/35"
+              }`}>
+                <div className={`text-[10px] font-black ${character.textClass}`}>{character.name}・{line.heading}</div>
+                <p className="mt-1 text-xs leading-relaxed text-slate-300">{line.text}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+export function ResultScreen({ g, fired = false, onRetry, onHome }) {
   const score = g.praise - g.bad;
   const { treated, refused, crashed, wrongs, picks } = g.stats;
   const acc = picks > 0 ? Math.round(((picks - wrongs) / picks) * 100) : 0;
-  const rank = fired ? "—" : score >= 12 ? "S" : score >= 8 ? "A" : score >= 4 ? "B" : score >= 0 ? "C" : "D";
-  const rankMsg = { S: "院長「君に病院を継いでほしい」", A: "院長「素晴らしい当直だった」", B: "院長「まずまずだな」", C: "院長「…次に期待する」", D: "院長「明日、院長室へ」", "—": "" }[rank];
+  const evaluation = getResultEvaluation(g, fired, acc);
   const clearPreview = !fired && ["secondary", "tertiary"].includes(g.hospitalId)
     ? { ...loadEmergencyProgress(), [g.hospitalId]: true }
     : loadEmergencyProgress();
   const secretJustAvailable = !fired && isSecretUnlocked(clearPreview);
-  return <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col items-center px-5 py-10">
-    <div className="text-xs text-sky-300 mb-2">{g.levelTitle}・全120例</div>
-    <div className="mb-2 rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-[10px] text-slate-400">
-      {HOSPITAL_MODES[g.hospitalId]?.title ?? "二次救急病院"}
+  return <div className="flex min-h-screen flex-col items-center bg-[radial-gradient(circle_at_top,#172033_0%,#020617_48%)] px-4 py-8 text-slate-200 sm:px-6 sm:py-10">
+    <GlobalStyles />
+    <div className="flex flex-wrap items-center justify-center gap-2 text-[10px]">
+      <span className="rounded-full border border-sky-800 bg-sky-950/50 px-3 py-1 font-bold text-sky-300">{g.levelTitle}・全120例</span>
+      <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-400">
+        {HOSPITAL_MODES[g.hospitalId]?.title ?? "二次救急病院"}
+      </span>
+      <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-400">{g.modeTitle}</span>
     </div>
-    {fired ? <><div className="text-5xl">💢</div><h1 className="text-2xl font-black mt-3 text-rose-400">院長室へ呼び出し</h1><p className="text-sm text-slate-400 mt-2 text-center">残念ポイントが溜まりすぎた。<br />当直は途中交代となった…</p></> : <><div className="font-mono text-emerald-400 tracking-[0.3em] text-xs">{g.endClock} — {g.modeTitle}終了</div><h1 className="text-2xl font-black mt-2">当直、お疲れさまでした</h1><div className="mt-5 text-center"><div className="text-6xl font-black text-emerald-400">{rank}</div><div className="text-xs text-slate-400 mt-1">{rankMsg}</div></div></>}
+    {fired ? (
+      <>
+        <div className="mt-6 text-5xl">💢</div>
+        <div className="mt-3 font-mono text-[10px] font-black tracking-[0.28em] text-rose-400">SHIFT TERMINATED</div>
+        <h1 className="mt-2 text-2xl font-black text-rose-300">院長室へ呼び出し</h1>
+        <p className="mt-2 text-center text-sm text-slate-400">残念ポイントが限界に達し、当直は途中交代となった。</p>
+      </>
+    ) : (
+      <>
+        <div className="mt-6 font-mono text-[10px] font-black tracking-[0.28em] text-emerald-400">
+          {g.endClock} — {evaluation.fullComplete ? "FULL SHIFT COMPLETE" : "SHIFT COMPLETE"}
+        </div>
+        <h1 className="mt-2 text-center text-2xl font-black">
+          {evaluation.fullComplete ? "朝まで、本当にお疲れさまでした" : "当直、お疲れさまでした"}
+        </h1>
+      </>
+    )}
+    <div className="mt-4 text-center">
+      <div className={`text-7xl font-black leading-none ${evaluation.rankClass}`}>{evaluation.rank}</div>
+      <div className="mt-2 text-xs font-black tracking-wider text-slate-400">{evaluation.label}</div>
+    </div>
+
+    <DirectorMeter evaluation={evaluation} />
+    <ResultDialogue evaluation={evaluation} />
+
     {!fired && ["secondary", "tertiary"].includes(g.hospitalId) && (
       <div className="mt-4 rounded-xl border border-emerald-600/60 bg-emerald-950/30 px-4 py-3 text-center text-sm font-black text-emerald-300">
         ✓ {HOSPITAL_MODES[g.hospitalId].shortTitle} CLEAR
@@ -2191,16 +2523,24 @@ function ResultScreen({ g, fired, onRetry, onHome }) {
         <div className="mt-1 text-[10px] text-fuchsia-200/70">タイトルから10床の極限モードを選べます。</div>
       </div>
     )}
-    <div className="mt-7 w-full max-w-sm grid grid-cols-2 gap-2 text-sm">
-      <Stat label="最終スコア" value={score >= 0 ? `+${score}` : score} accent /><Stat label="正答率" value={`${acc}%`} /><Stat label="完遂した症例" value={treated} /><Stat label="受入拒否" value={refused} /><Stat label="急変させた患者" value={crashed} /><Stat label="判断ミス" value={wrongs} />{!fired && <Stat label="朝番へ引き継ぎ" value={g.beds.filter(Boolean).length} />}
+    <div className="mt-6 grid w-full max-w-xl grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+      <Stat label="褒めポイント" value={`+${g.praise}`} valueClass="text-amber-300" />
+      <Stat label="残念ポイント" value={g.bad} valueClass="text-rose-300" />
+      <Stat label="院長メーター" value={formatSignedScore(score)} valueClass={evaluation.rankClass} />
+      <Stat label="正答率" value={`${acc}%`} />
+      <Stat label="完遂した症例" value={treated} />
+      <Stat label="受入拒否" value={refused} />
+      <Stat label="急変させた患者" value={crashed} />
+      <Stat label="判断ミス" value={wrongs} />
+      {!fired && <Stat label="朝番へ引き継ぎ" value={g.beds.filter(Boolean).length} />}
     </div>
-    {g.stats.done.length > 0 && <div className="mt-5 w-full max-w-sm"><div className="text-[11px] text-slate-500 mb-1.5">今夜の診断リスト</div><div className="flex flex-wrap gap-1.5">{g.stats.done.map((d, i) => <span key={`${d.dx}-${i}`} className={`text-[11px] px-2 py-1 rounded-full border ${d.ok ? "border-emerald-700 text-emerald-300" : "border-rose-700 text-rose-300"}`}>{d.ok ? "✓" : "✗"} {d.dx}</span>)}</div></div>}
-    <div className="mt-8 grid w-full max-w-sm grid-cols-2 gap-2">
+    {g.stats.done.length > 0 && <div className="mt-5 w-full max-w-xl"><div className="mb-1.5 text-[11px] text-slate-500">今夜の診断リスト</div><div className="flex flex-wrap gap-1.5">{g.stats.done.map((d, i) => <span key={`${d.dx}-${i}`} className={`rounded-full border px-2 py-1 text-[11px] ${d.ok ? "border-emerald-700 text-emerald-300" : "border-rose-700 text-rose-300"}`}>{d.ok ? "✓" : "✗"} {d.dx}</span>)}</div></div>}
+    <div className="mt-8 grid w-full max-w-xl grid-cols-2 gap-2">
       <button onClick={onHome} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-slate-300 transition hover:border-sky-600 hover:text-sky-300 active:scale-95">タイトルへ戻る</button>
       <button onClick={onRetry} className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-500 active:scale-95">同じ条件でもう一度</button>
     </div>
   </div>;
 }
-function Stat({ label, value, accent }) {
-  return <div className="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2"><div className="text-[10px] text-slate-500">{label}</div><div className={`font-mono text-lg font-bold ${accent ? "text-emerald-400" : "text-slate-200"}`}>{value}</div></div>;
+function Stat({ label, value, valueClass = "text-slate-200" }) {
+  return <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"><div className="text-[10px] text-slate-500">{label}</div><div className={`font-mono text-lg font-bold ${valueClass}`}>{value}</div></div>;
 }
