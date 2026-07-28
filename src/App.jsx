@@ -15,6 +15,15 @@ import { clearSavedProgress, loadSavedProgress, saveProgress } from "./saveGame"
 import { useButtonSfx } from "./useButtonSfx";
 import { getGameplayMusicProfile, useGameplayBgm } from "./useGameplayBgm";
 import { useTitleBgm } from "./useTitleBgm";
+import { useRushSfx } from "./useRushSfx";
+import {
+  PANIC_RUSH_CONFIGS,
+  advancePanicRush,
+  createPanicRush,
+  drawPanicCase,
+  getRushRemainingRealSeconds,
+  getRushSpawnDelay,
+} from "./panicRush";
 
 const TICK_MS = 100;
 const SEC_PER_TICK = 3;
@@ -1175,6 +1184,7 @@ export const newGame = (
   order: buildCaseOrder(level.cases, hospital.id), ci: 0,
   nextSpawnAt: hospital.id === "secret" ? 30 : 60 + rand(120),
   emptySince: 0, focus: 0, fx: null, log: [],
+  panicRush: createPanicRush(mode.shiftSec), rushCutin: null,
   stats: { treated: 0, refused: 0, crashed: 0, wrongs: 0, picks: 0, done: [] },
   });
 };
@@ -1185,6 +1195,7 @@ export default function NightShiftER() {
   const intervalRef = useRef(null);
   const previousRedBedsRef = useRef([]);
   const lastSoundedFxRef = useRef(null);
+  const lastSoundedRushCutinRef = useRef(null);
   const gameplayMusicProfile = getGameplayMusicProfile(g);
   const gameplayMusic = useGameplayBgm({
     phase: g.phase,
@@ -1196,6 +1207,7 @@ export default function NightShiftER() {
     playIcuWarning,
     playGoodDoctor,
   } = useButtonSfx();
+  const { playRushSfx } = useRushSfx();
 
   useEffect(() => {
     if (g.phase !== "play") return undefined;
@@ -1239,6 +1251,17 @@ export default function NightShiftER() {
     if (g.fx.type === "good") playGoodDoctor();
   }, [g.fx, g.phase, playGoodDoctor, playIcuWarning]);
 
+  useEffect(() => {
+    const cutin = g.rushCutin;
+    if (!cutin || g.t >= cutin.until) {
+      lastSoundedRushCutinRef.current = null;
+      return;
+    }
+    if (lastSoundedRushCutinRef.current === cutin.key) return;
+    lastSoundedRushCutinRef.current = cutin.key;
+    playRushSfx(g.panicRush?.type, cutin.kind);
+  }, [g.panicRush?.type, g.rushCutin, g.t, playRushSfx]);
+
   const tick = (s) => {
     if (s.phase !== "play") return s;
     const cases = (CASE_LEVELS[s.levelId] ?? CASE_LEVELS.student).cases;
@@ -1247,11 +1270,22 @@ export default function NightShiftER() {
       stats: { ...s.stats, done: [...s.stats.done] },
     };
     if (n.t >= n.shiftSec) return { ...n, phase: "end" };
+    const rushWasActive = Boolean(n.panicRush?.activated && !n.panicRush?.completed);
+    const rushWasCompleted = Boolean(n.panicRush?.completed);
+    const rushUpdate = advancePanicRush(n.panicRush, n.t);
+    n.panicRush = rushUpdate.rush;
+    const rushJustStarted = !rushWasActive && Boolean(n.panicRush?.activated);
+    const rushJustCompleted = !rushWasCompleted && Boolean(n.panicRush?.completed);
+    if (rushUpdate.cutin) n.rushCutin = rushUpdate.cutin;
+    if (rushUpdate.logMessage) n.log = pushLog(n.log, rushUpdate.logMessage);
     if (n.incoming && n.t >= n.incoming.deadline) {
       const c = cases[n.incoming.caseIdx];
       n.bad += 1; n.stats.refused += 1;
       n.log = pushLog(n.log, `⛔ ${c.chief}の受け入れを断った(残念+1)`);
-      n.incoming = null; n.nextSpawnAt = n.t + 450 + rand(300);
+      n.incoming = null;
+      n.nextSpawnAt = n.t + (n.panicRush?.activated
+        ? getRushSpawnDelay(n.hospitalId)
+        : 450 + rand(300));
     }
     n.beds = n.beds.map((bed) => {
       if (!bed) return bed;
@@ -1287,12 +1321,39 @@ export default function NightShiftER() {
     const score = n.praise - n.bad;
     const fever = score > 5;
     const occupied = n.beds.filter(Boolean).length;
+    if (rushJustStarted) {
+      n.nextSpawnAt = n.incoming
+        ? n.t + getRushSpawnDelay(n.hospitalId)
+        : Math.min(n.nextSpawnAt, n.t);
+    } else if (rushJustCompleted) {
+      n.nextSpawnAt = n.t + (
+        n.hospitalId === "secret"
+          ? fever ? 60 + rand(60) : 90 + rand(120)
+          : fever ? 350 + rand(250) : 700 + rand(500)
+      );
+    }
+    const drawRushCase = () => {
+      const normalCaseIdx = n.order[n.ci % n.order.length];
+      const excludedCaseIdxs = n.beds.flatMap((bed) => {
+        const index = bed ? cases.indexOf(bed.case) : -1;
+        return index >= 0 ? [index] : [];
+      });
+      const draw = drawPanicCase({
+        rush: n.panicRush,
+        cases,
+        hospitalId: n.hospitalId,
+        normalCaseIdx,
+        excludedCaseIdxs,
+      });
+      n.panicRush = draw.updatedRush;
+      return draw.idx;
+    };
     if (occupied > 0 || n.incoming) n.emptySince = n.t;
     if (n.hospitalId === "secret") {
       n.incoming = null;
       if (occupied < n.beds.length && n.t >= n.nextSpawnAt) {
         const bedIndex = n.beds.findIndex((bed) => !bed);
-        const caseIdx = n.order[n.ci % n.order.length];
+        const caseIdx = drawRushCase();
         const caseData = cases[caseIdx];
         n.beds[bedIndex] = createBed(caseData, n.t);
         n.log = pushLog(n.log, `♾️ ${caseData.chief}をBED ${bedIndex + 1}へ自動収容`);
@@ -1301,18 +1362,24 @@ export default function NightShiftER() {
         if (n.ci % n.order.length === 0) {
           n.order = buildCaseOrder(cases, "secret");
         }
-        n.nextSpawnAt = n.t + (fever ? 60 + rand(60) : 90 + rand(120));
+        n.nextSpawnAt = n.t + (n.panicRush?.activated
+          ? getRushSpawnDelay(n.hospitalId)
+          : fever ? 60 + rand(60) : 90 + rand(120));
       }
     } else if (!n.incoming) {
-      const mustSpawn = (occupied === 0 && n.t - n.emptySince >= 240)
-        || (fever && occupied < 3) || n.t >= n.nextSpawnAt;
+      const mustSpawn = n.panicRush?.activated
+        ? n.t >= n.nextSpawnAt
+        : (occupied === 0 && n.t - n.emptySince >= 240)
+          || (fever && occupied < 3) || n.t >= n.nextSpawnAt;
       if (mustSpawn) {
-        n.incoming = { caseIdx: n.order[n.ci % n.order.length], deadline: n.t + INCOMING_WAIT };
+        n.incoming = { caseIdx: drawRushCase(), deadline: n.t + INCOMING_WAIT };
         n.ci += 1;
         if (n.ci % n.order.length === 0) {
           n.order = buildCaseOrder(cases, n.hospitalId);
         }
-        n.nextSpawnAt = n.t + (fever ? 350 + rand(250) : 700 + rand(500));
+        n.nextSpawnAt = n.t + (n.panicRush?.activated
+          ? getRushSpawnDelay(n.hospitalId)
+          : fever ? 350 + rand(250) : 700 + rand(500));
       }
     }
     if (score <= -5) return { ...n, phase: "over" };
@@ -1328,7 +1395,7 @@ export default function NightShiftER() {
   const resumeSavedGame = (savedGame) => {
     gameplayMusic.start();
     setSaveError("");
-    setG({ ...savedGame, phase: "play", fx: null });
+    setG({ ...savedGame, phase: "play", fx: null, rushCutin: null, panicRush: savedGame.panicRush ?? null });
   };
   const retry = () => start(
     g.modeId ?? "short",
@@ -1374,7 +1441,9 @@ export default function NightShiftER() {
     if (!s.incoming) return s;
     const c = (CASE_LEVELS[s.levelId] ?? CASE_LEVELS.student).cases[s.incoming.caseIdx];
     return {
-      ...s, incoming: null, nextSpawnAt: s.t + 450 + rand(300), bad: s.bad + 1,
+      ...s, incoming: null,
+      nextSpawnAt: s.t + (s.panicRush?.activated ? getRushSpawnDelay(s.hospitalId) : 450 + rand(300)),
+      bad: s.bad + 1,
       stats: { ...s.stats, refused: s.stats.refused + 1 },
       log: pushLog(s.log, `⛔ ${c.chief}の受け入れを断った(残念+1)`),
     };
@@ -1402,6 +1471,8 @@ export default function NightShiftER() {
 
   const score = g.praise - g.bad;
   const fever = score > 5;
+  const rushActive = Boolean(g.panicRush?.activated && !g.panicRush?.completed);
+  const rushCutinVisible = Boolean(g.rushCutin && g.t < g.rushCutin.until);
   const focusBed = g.beds[g.focus];
   return (
     <div className="relative isolate min-h-screen overflow-x-hidden bg-sky-50 text-slate-200 font-sans">
@@ -1450,6 +1521,12 @@ export default function NightShiftER() {
             </button>
           )}
         </div>
+        {rushActive && (
+          <div className="mt-1 flex items-center justify-between rounded-lg border border-rose-300 bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-700 sm:max-w-md">
+            <span>{PANIC_RUSH_CONFIGS[g.panicRush.type]?.icon} {PANIC_RUSH_CONFIGS[g.panicRush.type]?.title ?? "PANIC RUSH"}</span>
+            <span className="font-mono">{getRushRemainingRealSeconds(g.panicRush, g.t)}s</span>
+          </div>
+        )}
       </header>
       {g.phase === "paused" && (
         <PauseMenu
@@ -1460,7 +1537,8 @@ export default function NightShiftER() {
           onQuit={quitShift}
         />
       )}
-      {g.fx && g.t < g.fx.until && <FxOverlay fx={g.fx} />}
+      {g.fx && g.t < g.fx.until && !rushCutinVisible && <FxOverlay fx={g.fx} />}
+      {rushCutinVisible && <DirectorRushCutin cutin={g.rushCutin} rush={g.panicRush} />}
       {g.incoming && <IncomingBanner incoming={g.incoming} t={g.t} beds={g.beds} cases={(CASE_LEVELS[g.levelId] ?? CASE_LEVELS.student).cases} onAccept={accept} onRefuse={refuse} />}
       <div className={`grid gap-1.5 px-2 pt-2 ${g.beds.length === 10 ? "grid-cols-5" : "grid-cols-4"}`}>
         {g.beds.map((bed, i) => <BedTab key={i} idx={i} bed={bed} t={g.t} active={g.focus === i} onClick={() => setG((s) => ({ ...s, focus: i }))} />)}
@@ -1599,6 +1677,33 @@ function FxOverlay({ fx }) {
       {good ? <div className="text-5xl">🩺</div> : <svg width="250" height="44" viewBox="0 0 250 44" className="mx-auto"><polyline className="fx-line" points="0,22 55,22 66,6 78,40 88,22 250,22" fill="none" stroke="#fb7185" strokeWidth="3" /></svg>}
       <div className={`text-2xl sm:text-3xl font-black tracking-wider ${good ? "text-emerald-300" : "text-rose-300"}`}>{good ? "GOOD DOCTOR!" : "急変 — ICU搬送"}</div>
       <div className={`text-sm mt-1 bg-slate-900/80 rounded-full px-3 py-1 inline-block ${good ? "text-emerald-100" : "text-rose-100"}`}>{good ? "✓" : "✗"} {fx.text} {good ? "を完遂" : "の管理に失敗(残念+2)"}</div>
+    </div>
+  </div>;
+}
+function DirectorRushCutin({ cutin, rush }) {
+  const config = PANIC_RUSH_CONFIGS[rush?.type];
+  const warning = cutin.kind === "warning";
+  const tone = warning
+    ? "border-amber-300 bg-amber-950/90 text-amber-100"
+    : "border-rose-300 bg-rose-950/90 text-rose-100";
+  const director = TUTORIAL_CHARACTERS.director;
+  return <div
+    className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center p-4"
+    aria-live="assertive"
+    role="status"
+  >
+    <div className={`absolute inset-0 ${warning ? "bg-amber-950/35" : "bg-rose-950/45"}`} />
+    <div className={`fx-pop relative flex w-full max-w-lg items-center gap-3 rounded-2xl border-2 p-3 shadow-2xl sm:gap-5 sm:p-5 ${tone}`}>
+      <CharacterAvatar character={director} active compact />
+      <div className="min-w-0 flex-1">
+        <div className={`text-[10px] font-black tracking-[0.22em] ${warning ? "text-amber-300" : "text-rose-300"}`}>
+          {warning ? "DIRECTOR WARNING" : "DIRECTOR ORDER"}
+        </div>
+        <div className="mt-1 text-xl font-black tracking-wide sm:text-3xl">
+          {config?.icon} {config?.title ?? "PANIC RUSH"}
+        </div>
+        <p className="mt-2 text-sm font-bold leading-relaxed sm:text-base">{cutin.text}</p>
+      </div>
     </div>
   </div>;
 }

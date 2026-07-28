@@ -1,5 +1,7 @@
 export const SAVE_KEY = "night-er-full-shift-progress-v1";
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
+
+const SUPPORTED_SAVE_VERSIONS = [1, 2, SAVE_VERSION];
 
 const browserStorage = () => {
   if (typeof window === "undefined") return null;
@@ -24,6 +26,9 @@ const normalizeSnapshot = (game) => {
           : "二次救急病院"
     ),
     bedCount: hospitalId === "secret" ? 10 : 4,
+    // Added in v3. Older saves did not contain a rush state or cut-in data.
+    panicRush: game.panicRush ?? null,
+    rushCutin: game.rushCutin ?? null,
   };
 };
 
@@ -45,7 +50,7 @@ export const loadSavedProgress = (storage = browserStorage()) => {
     const raw = storage.getItem(SAVE_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
-    if (![1, SAVE_VERSION].includes(saved.version) || typeof saved.savedAt !== "string") {
+    if (!SUPPORTED_SAVE_VERSIONS.includes(saved.version) || typeof saved.savedAt !== "string") {
       return null;
     }
     const game = normalizeSnapshot(saved.game);
@@ -67,6 +72,9 @@ export const saveProgress = (game, storage = browserStorage()) => {
         ...normalized,
         phase: "play",
         fx: null,
+        // The active rush affects gameplay and must survive a reload; the
+        // cut-in is display-only and should never resume after one.
+        rushCutin: null,
       },
     }));
     return true;
