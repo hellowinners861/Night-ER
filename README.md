@@ -63,4 +63,5 @@ npm run build
 - 心電図SE: [「心電図が」](https://dova-s.jp/se/detail/162) / 稿屋 隆（DOVA-SYNDROME）
 - 決定SE 51・53: ユーザー提供音源
 - 警告SE 1・2、成功SE: ユーザー提供音源
-- アンビエントパッド・ピアノ: Night-ER用オリジナル音源（Web Audio APIによる生成）
+- タイトルBGM（アンビエントパッド・ピアノ）: Night-ER用オリジナル音源（Web Audio APIによる生成）
+- プレイ中BGM（ERレスキュー・パルス）: Night-ER用オリジナル音源（Web Audio APIによる生成）
