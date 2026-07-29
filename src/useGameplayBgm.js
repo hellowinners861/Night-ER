@@ -6,13 +6,18 @@ const SCHEDULE_AHEAD_SECONDS = 0.12;
 const SCHEDULER_INTERVAL_MS = 30;
 const SIXTEENTH_STEPS = 16;
 const MASTER_FADE_SECONDS = 0.45;
-const MASTER_GAIN_BASE = 0.68;
-const MASTER_GAIN_INTENSITY = 0.08;
+const MASTER_GAIN_BASE = 0.92;
+const MASTER_GAIN_INTENSITY = 0.1;
 
-// E minorを中心にした、タイトル画面とは別系統の緊張感ある進行。
-const BAR_ROOTS = [82.41, 65.41, 73.42, 61.74]; // Em - C - D - Bm
-const ARPEGGIO = [0, null, 2, 1, null, 2, 0, 3, 0, null, 2, 1, null, 3, 2, 1];
-const MINOR_RATIOS = [1, 1.1892, 1.4983, 2];
+// D majorを軸に、救命現場の前向きさと緊張感を両立した進行。
+const BAR_CHORDS = [
+  { bass: 73.42, tones: [293.66, 369.99, 440, 659.25] }, // Dadd9
+  { bass: 69.3, tones: [277.18, 329.63, 440, 493.88] }, // Aadd9/C#
+  { bass: 61.74, tones: [246.94, 293.66, 369.99, 440] }, // Bm7
+  { bass: 49, tones: [196, 246.94, 293.66, 440] }, // Gadd9
+];
+const ARPEGGIO = [0, null, 2, 1, null, 3, 2, null, 0, 2, null, 3, 1, null, 2, 1];
+const CALM_ARPEGGIO_STEPS = new Set([0, 3, 8, 11]);
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -91,7 +96,7 @@ const scheduleKick = (engine, startsAt, strength = 1) => {
   oscillator.frequency.setValueAtTime(108, startsAt);
   oscillator.frequency.exponentialRampToValueAtTime(48, startsAt + 0.11);
   gain.gain.setValueAtTime(0.0001, startsAt);
-  gain.gain.exponentialRampToValueAtTime(0.052 * strength, startsAt + 0.008);
+  gain.gain.exponentialRampToValueAtTime(0.068 * strength, startsAt + 0.008);
   gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + 0.2);
   oscillator.connect(gain);
   gain.connect(bus);
@@ -110,7 +115,7 @@ const scheduleHat = (engine, startsAt, strength = 1, open = false) => {
   filter.frequency.value = open ? 4200 : 5600;
   filter.Q.value = 0.5;
   gain.gain.setValueAtTime(0.0001, startsAt);
-  gain.gain.exponentialRampToValueAtTime(0.009 * strength, startsAt + 0.004);
+  gain.gain.exponentialRampToValueAtTime(0.012 * strength, startsAt + 0.004);
   gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + duration);
   source.connect(filter);
   filter.connect(gain);
@@ -127,10 +132,10 @@ const scheduleBass = (engine, startsAt, frequency, strength = 1) => {
   oscillator.type = "sawtooth";
   oscillator.frequency.setValueAtTime(frequency, startsAt);
   filter.type = "lowpass";
-  filter.frequency.value = 260 + intensity * 360;
-  filter.Q.value = 1.1;
+  filter.frequency.value = 340 + intensity * 520;
+  filter.Q.value = 0.8;
   gain.gain.setValueAtTime(0.0001, startsAt);
-  gain.gain.exponentialRampToValueAtTime(0.028 * strength, startsAt + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.038 * strength, startsAt + 0.012);
   gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + 0.32);
   oscillator.connect(filter);
   filter.connect(gain);
@@ -147,10 +152,10 @@ const schedulePluck = (engine, startsAt, frequency, strength = 1) => {
   oscillator.type = "triangle";
   oscillator.frequency.setValueAtTime(frequency, startsAt);
   filter.type = "bandpass";
-  filter.frequency.value = 720 + intensity * 520;
+  filter.frequency.value = 980 + intensity * 680;
   filter.Q.value = 0.8;
   gain.gain.setValueAtTime(0.0001, startsAt);
-  gain.gain.exponentialRampToValueAtTime(0.021 * strength, startsAt + 0.009);
+  gain.gain.exponentialRampToValueAtTime(0.032 * strength, startsAt + 0.009);
   gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + 0.21);
   oscillator.connect(filter);
   filter.connect(gain);
@@ -159,17 +164,62 @@ const schedulePluck = (engine, startsAt, frequency, strength = 1) => {
   oscillator.stop(startsAt + 0.24);
 };
 
+const scheduleRim = (engine, startsAt, strength = 1) => {
+  const { context, bus, noiseBuffer } = engine;
+  const source = context.createBufferSource();
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+  source.buffer = noiseBuffer;
+  filter.type = "bandpass";
+  filter.frequency.value = 1850;
+  filter.Q.value = 1.8;
+  gain.gain.setValueAtTime(0.0001, startsAt);
+  gain.gain.exponentialRampToValueAtTime(0.021 * strength, startsAt + 0.003);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + 0.075);
+  source.connect(filter);
+  filter.connect(gain);
+  gain.connect(bus);
+  source.start(startsAt, (engine.step % 7) * 0.091);
+  source.stop(startsAt + 0.085);
+};
+
+const scheduleChordStab = (engine, startsAt, tones, strength = 1) => {
+  const { context, bus, intensity } = engine;
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+  const oscillators = tones.map((frequency, index) => {
+    const oscillator = context.createOscillator();
+    oscillator.type = index === 0 ? "triangle" : "sine";
+    oscillator.frequency.setValueAtTime(frequency / 2, startsAt);
+    oscillator.detune.value = (index - 1.5) * 1.5;
+    oscillator.connect(filter);
+    return oscillator;
+  });
+  filter.type = "lowpass";
+  filter.frequency.value = 1500 + intensity * 900;
+  filter.Q.value = 0.45;
+  gain.gain.setValueAtTime(0.0001, startsAt);
+  gain.gain.exponentialRampToValueAtTime(0.007 * strength, startsAt + 0.018);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + 0.58);
+  filter.connect(gain);
+  gain.connect(bus);
+  oscillators.forEach((oscillator) => {
+    oscillator.start(startsAt);
+    oscillator.stop(startsAt + 0.62);
+  });
+};
+
 const scheduleTensionTick = (engine, startsAt, step) => {
   const { context, bus } = engine;
   const oscillator = context.createOscillator();
   const filter = context.createBiquadFilter();
   const gain = context.createGain();
-  oscillator.type = "square";
-  oscillator.frequency.value = step % 8 < 4 ? 523.25 : 554.37;
+  oscillator.type = "triangle";
+  oscillator.frequency.value = step % 8 < 4 ? 698.46 : 739.99;
   filter.type = "lowpass";
-  filter.frequency.value = 1500;
+  filter.frequency.value = 2200;
   gain.gain.setValueAtTime(0.0001, startsAt);
-  gain.gain.exponentialRampToValueAtTime(0.0065, startsAt + 0.004);
+  gain.gain.exponentialRampToValueAtTime(0.009, startsAt + 0.004);
   gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + 0.07);
   oscillator.connect(filter);
   filter.connect(gain);
@@ -180,13 +230,16 @@ const scheduleTensionTick = (engine, startsAt, step) => {
 
 const scheduleStep = (engine, startsAt) => {
   const step = engine.step % SIXTEENTH_STEPS;
-  const bar = Math.floor(engine.step / SIXTEENTH_STEPS) % BAR_ROOTS.length;
-  const root = BAR_ROOTS[bar];
+  const bar = Math.floor(engine.step / SIXTEENTH_STEPS) % BAR_CHORDS.length;
+  const chord = BAR_CHORDS[bar];
   const intensity = engine.intensity;
   const density = engine.density;
 
-  if (step % 4 === 0) {
-    scheduleBass(engine, startsAt, root, 0.82 + intensity * 0.28);
+  if (step === 0 || step === 8) {
+    scheduleBass(engine, startsAt, chord.bass, 0.84 + intensity * 0.3);
+  }
+  if (density >= 2 && (step === 6 || step === 14)) {
+    scheduleBass(engine, startsAt, chord.bass * 1.5, 0.5 + intensity * 0.2);
   }
   if (step === 0 || step === 8) {
     scheduleKick(engine, startsAt, 0.78 + intensity * 0.35);
@@ -194,8 +247,14 @@ const scheduleStep = (engine, startsAt) => {
   if (density >= 3 && (step === 6 || step === 14)) {
     scheduleKick(engine, startsAt, 0.45 + intensity * 0.2);
   }
+  if (step === 4 || step === 12) {
+    scheduleRim(engine, startsAt, 0.65 + intensity * 0.35);
+  }
+  if (step === 0 || (density >= 2 && step === 10)) {
+    scheduleChordStab(engine, startsAt, chord.tones, 0.75 + intensity * 0.35);
+  }
 
-  if (density >= 1 && step % 2 === 0) {
+  if (density >= 1 && [2, 6, 10, 14].includes(step)) {
     scheduleHat(engine, startsAt, 0.55 + intensity * 0.45, step === 14);
   }
   if ((density >= 4 || engine.redCount > 0) && step % 2 === 1) {
@@ -203,11 +262,11 @@ const scheduleStep = (engine, startsAt) => {
   }
 
   const degree = ARPEGGIO[step];
-  if (degree !== null && (density >= 1 || step === 0 || step === 8)) {
+  if (degree !== null && (density >= 2 || CALM_ARPEGGIO_STEPS.has(step))) {
     schedulePluck(
       engine,
       startsAt,
-      root * 2 * MINOR_RATIOS[degree],
+      chord.tones[degree],
       0.55 + intensity * 0.5,
     );
   }
@@ -248,21 +307,21 @@ const createEngine = (profile) => {
   const lfoGain = context.createGain();
 
   bus.gain.value = 1;
-  compressor.threshold.value = -24;
-  compressor.knee.value = 12;
-  compressor.ratio.value = 4;
-  compressor.attack.value = 0.008;
-  compressor.release.value = 0.18;
+  compressor.threshold.value = -18;
+  compressor.knee.value = 9;
+  compressor.ratio.value = 6;
+  compressor.attack.value = 0.004;
+  compressor.release.value = 0.16;
   master.gain.value = 0;
 
   droneA.type = "triangle";
-  droneA.frequency.value = 41.2;
+  droneA.frequency.value = 73.42;
   droneB.type = "sine";
-  droneB.frequency.value = 61.74;
+  droneB.frequency.value = 110;
   droneFilter.type = "lowpass";
-  droneFilter.frequency.value = 210;
-  droneFilter.Q.value = 0.7;
-  droneGain.gain.value = 0.006;
+  droneFilter.frequency.value = 320;
+  droneFilter.Q.value = 0.55;
+  droneGain.gain.value = 0.009;
   lfo.type = "sine";
   lfo.frequency.value = 0.11;
   lfoGain.gain.value = 0.0018;
@@ -316,12 +375,12 @@ const updateEngine = (engine, profile) => {
   engine.redCount = profile.redCount;
   const now = engine.context.currentTime;
   engine.droneFilter.frequency.setTargetAtTime(
-    175 + profile.intensity * 260,
+    260 + profile.intensity * 420,
     now,
     0.28,
   );
   engine.droneGain.gain.setTargetAtTime(
-    0.0045 + profile.intensity * 0.006,
+    0.007 + profile.intensity * 0.008,
     now,
     0.32,
   );
