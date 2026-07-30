@@ -3,6 +3,6 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  base: "/Night-ER/",
+  base: process.env.CF_PAGES ? "/" : "/Night-ER/",
   plugins: [react(), tailwindcss()],
 });
