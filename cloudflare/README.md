@@ -1,23 +1,22 @@
-# Cloudflare Pages ランキング設定
+# Cloudflare Workers ランキング設定
 
-Night-ERのランキングは、Cloudflare Pages FunctionsとD1を使用します。コード側では以下のバインディング名を固定で参照します。
+Night-ERのランキングは、Cloudflare WorkersとD1を使用します。コード側では以下のバインディング名を固定で参照します。
 
 - D1データベース: `DB`
 - 暗号化シークレット: `RANKING_SALT`
 
-## 1. Pagesプロジェクトを作成
+## 1. WorkerをGitHubへ接続
 
-Cloudflare Dashboardの **Workers & Pages** から **Create application > Pages > Connect to Git** を選び、GitHubの `hellowinners861/Night-ER` を接続します。
+Cloudflare Dashboardの **Workers & Pages** からWorkerを作成し、GitHubの `hellowinners861/Night-ER` を接続します。
 
 | 項目 | 設定値 |
 | --- | --- |
 | Production branch | `main` |
-| Framework preset | React (Vite) |
 | Build command | `npm run build` |
-| Build output directory | `dist` |
+| Deploy command | `npx wrangler deploy` |
 | Root directory | 空欄（リポジトリ直下） |
 
-Cloudflare Pagesでは自動設定される `CF_PAGES=1` を見て、Viteの公開パスを `/` に切り替えます。GitHub Pages向けの `/Night-ER/` も引き続き維持されます。
+[`wrangler.jsonc`](../wrangler.jsonc) がWorkerコード、静的アセット、D1バインディングをまとめて設定します。GitHub Actionsでは従来どおりGitHub Pages向けの `/Night-ER/` を使用します。
 
 ## 2. D1データベースを作成
 
@@ -27,18 +26,16 @@ Cloudflare Dashboardで **D1 SQL database > Create Database** を選びます。
 
 作成後、D1の **Console** を開き、[`schema.sql`](./schema.sql) の内容を貼り付けて **Execute** してください。
 
-## 3. PagesへD1を接続
+## 3. WorkerへD1を接続
 
-Pagesプロジェクトで **Settings > Bindings > Add > D1 database bindings** を選びます。
+通常は `wrangler.jsonc` の設定がデプロイ時に自動適用されます。Dashboardで確認する場合はWorkerの **Bindings** を開きます。
 
 - Variable name: `DB`
 - D1 database: `night-er-ranking`
 
-ProductionとPreviewの両環境へ同じ設定を追加すると、PRのプレビューURLでもランキングを確認できます。
-
 ## 4. 送信制限用シークレットを追加
 
-Pagesプロジェクトで **Settings > Variables and Secrets > Add** を選びます。
+Workerに実行コードを一度デプロイした後、**Settings > Variables and Secrets > Add** を選びます。
 
 - Variable name: `RANKING_SALT`
 - Value: パスワード管理アプリなどで生成した32文字以上のランダム文字列
@@ -48,12 +45,12 @@ Pagesプロジェクトで **Settings > Variables and Secrets > Add** を選び�
 
 ## 5. 再デプロイして確認
 
-BindingsとSecretsは設定後のデプロイから有効になります。Pagesの **Deployments** から最新コミットを再デプロイしてください。
+BindingsとSecretsは設定後のデプロイから有効になります。Workerの **Deployments** から最新コミットを確認してください。
 
 以下へアクセスし、`entries` を含むJSONが返ればAPIの準備完了です。
 
 ```text
-https://<PROJECT>.pages.dev/api/rankings?levelId=student&hospitalId=secondary&modeId=short
+https://<PROJECT>.<SUBDOMAIN>.workers.dev/api/rankings?levelId=student&hospitalId=secondary&modeId=short
 ```
 
 リザルト画面では、同じ「利用者区分・救急区分・当直モード」のTOP 10を表示します。途中交代の当直は登録できません。
