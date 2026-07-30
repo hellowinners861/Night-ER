@@ -1,0 +1,23 @@
+{
+  "name": "night-er-pages",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-07-30",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "night-er-ranking",
+      "database_id": "e6d4379e-e340-4eac-98ac-27d89db1ae92"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
