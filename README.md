@@ -65,3 +65,9 @@ npm run build
 - 警告SE 1・2、成功SE: ユーザー提供音源
 - タイトルBGM（アンビエントパッド・ピアノ）: Night-ER用オリジナル音源（Web Audio APIによる生成）
 - プレイ中BGM（ERレスキュー・パルス）: Night-ER用オリジナル音源（Web Audio APIによる生成）
+
+## Cloudflare Pagesランキング
+
+Cloudflare Pages FunctionsとD1を使った、利用者区分・救急区分・当直モード別のTOP 10ランキングに対応しています。リザルト画面から任意のランキング名で成績を登録できます。
+
+Cloudflare側で必要なD1、Bindings、Secretsの設定は [`cloudflare/README.md`](./cloudflare/README.md) を参照してください。

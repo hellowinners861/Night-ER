@@ -6,6 +6,7 @@ import {
   EXTRA_STUDENT_MINOR_CASES,
 } from "./expandedCases";
 import EmergencyRoomBackground from "./EmergencyRoomBackground";
+import RankingPanel from "./RankingPanel";
 import {
   isSecretUnlocked,
   loadEmergencyProgress,
@@ -2700,6 +2701,22 @@ export function ResultScreen({ g, fired = false, onRetry, onHome }) {
       <Stat label="判断ミス" value={wrongs} />
       {!fired && <Stat label="朝番へ引き継ぎ" value={g.beds.filter(Boolean).length} />}
     </div>
+    <RankingPanel
+      result={{
+        levelId: g.levelId,
+        hospitalId: g.hospitalId,
+        modeId: g.modeId,
+        categoryLabel: `${g.levelTitle}・${HOSPITAL_MODES[g.hospitalId]?.shortTitle ?? "二次救急"}・${g.modeTitle}`,
+        praise: g.praise,
+        bad: g.bad,
+        treated,
+        refused,
+        crashed,
+        wrongs,
+        picks,
+        fired,
+      }}
+    />
     {g.stats.done.length > 0 && <div className="mt-5 w-full max-w-xl"><div className="mb-1.5 text-[11px] text-slate-500">今夜の診断リスト</div><div className="flex flex-wrap gap-1.5">{g.stats.done.map((d, i) => <span key={`${d.dx}-${i}`} className={`rounded-full border px-2 py-1 text-[11px] ${d.ok ? "border-emerald-700 text-emerald-300" : "border-rose-700 text-rose-300"}`}>{d.ok ? "✓" : "✗"} {d.dx}</span>)}</div></div>}
     <div className="mt-8 grid w-full max-w-xl grid-cols-2 gap-2">
       <button onClick={onHome} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-slate-300 transition hover:border-sky-600 hover:text-sky-300 active:scale-95">タイトルへ戻る</button>
