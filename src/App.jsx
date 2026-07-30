@@ -80,29 +80,54 @@ export const HOSPITAL_MODES = {
   },
 };
 
-// imageSrcへ画像パスを設定すれば、仮画像から本番キャラクターへ差し替えられる。
+const CHARACTER_ASSET_BASE = `${import.meta.env.BASE_URL}characters/`;
+
 const TUTORIAL_CHARACTERS = {
   director: {
     id: "director",
     name: "院長",
-    initial: "院",
-    imageSrc: null,
+    images: {
+      default: {
+        src: `${CHARACTER_ASSET_BASE}director-guide.webp`,
+        objectPosition: "56% 50%",
+      },
+      encouraging: {
+        src: `${CHARACTER_ASSET_BASE}director-encouraging.webp`,
+        objectPosition: "50% 50%",
+      },
+    },
     frameClass: "border-amber-500/60 bg-amber-950/50",
     textClass: "text-amber-300",
   },
   student: {
     id: "student",
     name: "医学生",
-    initial: "学",
-    imageSrc: null,
+    images: {
+      default: {
+        src: `${CHARACTER_ASSET_BASE}learner-listening.webp`,
+        objectPosition: "50% 50%",
+      },
+      encouraging: {
+        src: `${CHARACTER_ASSET_BASE}learner-encouraging.webp`,
+        objectPosition: "50% 50%",
+      },
+    },
     frameClass: "border-sky-500/60 bg-sky-950/50",
     textClass: "text-sky-300",
   },
   doctor: {
     id: "doctor",
     name: "研修医／医師",
-    initial: "医",
-    imageSrc: null,
+    images: {
+      default: {
+        src: `${CHARACTER_ASSET_BASE}learner-listening.webp`,
+        objectPosition: "50% 50%",
+      },
+      encouraging: {
+        src: `${CHARACTER_ASSET_BASE}learner-encouraging.webp`,
+        objectPosition: "50% 50%",
+      },
+    },
     frameClass: "border-violet-500/60 bg-violet-950/50",
     textClass: "text-violet-300",
   },
@@ -116,31 +141,64 @@ const getTutorialScript = (levelId, modeId, hospitalId) => {
   const isTertiary = hospital.id === "tertiary";
   const isSecret = hospital.id === "secret";
   const modeText = mode.id === "full"
-    ? "フル当直は17:00から翌08:00、プレイ時間の目安は約30分だ。画面上部の「一時停止」から、当直を続ける・セーブして戻る・終了するを選べる。保存すれば、この端末から再開できるぞ。"
-    : "ショート当直は22:00から翌03:00、プレイ時間の目安は約10分だ。一時停止はない。限られた時間で優先順位をつけ、テンポよく診療を進めるんだ。";
+    ? "フル当直は17:00から翌08:00、実時間約30分だ。画面上部の「一時停止」を選ぶと、院内時計・処置・急変タイマー・BGMも止まる。「セーブして戻る」で、この端末のブラウザから再開できるぞ。"
+    : "ショート当直は22:00から翌03:00、実時間約10分だ。一時停止と保存はできない。迷ったら生命危機と残り時間へ戻れ。";
   const opening = isSecret
     ? (isDoctor
-      ? "ここはシークレットの「断らない救急」だ。10床すべてを君に任せる。搬送依頼は選別せず自動収容され、重症も軽症も途切れなく来る。"
-      : "二次救急と三次救急を完走した褒美に、10床の「断らない救急」へ招待しよう。患者さんは自動で次々に入ってくるぞ。")
+      ? "ここは10床の「断らない救急」だ。重症も軽症も途切れなく来る。全床の優先順位を更新し続けてくれ。"
+      : "ここは10床の「断らない救急」だ。患者さんが途切れなく来る中で、赤い急変ゲージと処置中の患者を見失わない練習だ。")
     : isTertiary
       ? (isDoctor
-        ? "今夜は救命救急センターを任せる。高エネルギー外傷、ショック、重症中毒など、複数診療科を同時に動かす症例が中心だ。"
-        : "今夜は三次救急だ。重篤患者や高エネルギー外傷が多い。医学生向けでは、まずABCDEと『すぐ上級医を呼ぶ場面』を学んでもらう。")
+        ? "今夜は救命救急センターを任せる。高エネルギー外傷、ショック、重症中毒に、チームで同時対応してもらう。"
+        : "今夜は三次救急だ。重症外傷やショックなど、命に関わる患者が来る。まず生命危機を見つける順番を身につけよう。")
       : (isDoctor
-        ? "今夜は地域の二次救急を任せる。限られた専門資源で初療し、自院入院か三次救急への転送かを判断してもらう。"
-        : "今夜は地域の二次救急だ。よく出会う急性疾患を診て、治療して帰せるか、入院か、三次救急へ送るかを考えてもらうぞ。");
+        ? "今夜は地域の二次救急を任せる。限られた資源で初療し、帰宅または自院入院で完結できるか、高次搬送が必要かを早めに判断してくれ。"
+        : "今夜は地域の二次救急だ。よくある急性疾患を初療し、帰宅・自院入院・高次搬送を見極めてもらう。");
   const facilityLesson = isSecret
-    ? "搬送依頼への返答操作はない。空床ができれば次の患者を自動収容する。10床を俯瞰し、赤ゲージと処置中の患者を絶えず見直せ。"
+    ? "赤い急変ゲージの患者を最優先に、残り時間と処置状況から全患者の順番を決める。1床終えるたび優先順位を更新しろ。"
     : isTertiary
       ? (isDoctor
-        ? "一人で診断を完成させてから動くな。外傷チーム、麻酔科、外科、IVR、大量輸血を早期に並行起動し、damage-controlを意識する。"
-        : "三次救急では、詳しい診断より先に生命を脅かすA・B・Cを探す。できることを始めながら、上級医と専門チームを早く呼ぶんだ。")
+        ? "診断確定後では遅い。受傷機転と生理学的異常から必要性を見込み、ABCDEを進めながら必要な外科系診療科・麻酔科・IVRを早期に招集する。重症外傷なら大量輸血と止血戦略も早く起動しろ。"
+        : "ABCDEの順に評価し、異常を見つけたらその場で処置する。一巡を待たず上級医と救命チームを呼び、評価と蘇生を並行するんだ。")
       : (isDoctor
-        ? "二次救急の勝負は、重症化を見抜く初療と転送判断だ。自施設で可能な検査・治療を進めつつ、高次搬送が必要なら安定化と連絡を遅らせない。"
-        : "二次救急では頻度の高い病気を基本どおりに評価する。帰宅させてよい条件と、入院・高次搬送が必要な赤旗を区別しよう。");
+        ? "確定診断を待つな。不安定なら蘇生を始め、検査と同時に転送先へ連絡する。安定例でも帰宅条件と入院適応を明確にしろ。"
+        : "まずバイタルと赤旗だ。安定例は必要な検査と治療を進め、帰宅なら再診の目安まで確認する。不安定例は上級医を呼び、安定化と転送準備を急げ。");
   const arrivalRule = isSecret
-    ? "空床がある限り救急車は自動収容される。断るボタンも応答猶予もない。1床終えた瞬間に次が来るつもりで、優先順位を更新し続けろ。"
-    : "患者情報を確認し、表示された応答時間内に空いているベッドへ収容する。満床なら断ることもできるが、受入拒否は残念ポイント+1だ。応答しないまま時間切れになっても、断った扱いになるぞ。";
+    ? "その通り。受入可否を選ぶ画面はなく、空床ができると次の患者を自動収容する。診療完了後はすぐ全患者を見直せ。"
+    : "そうだ。表示された応答時間内に空床へ収容する。断るか時間切れになると残念ポイント+1だ。";
+  const modeQuestion = mode.id === "full"
+    ? (isDoctor
+      ? "誤答の時間損失も含め、全床の優先順位を更新します。中断が必要なときは保存できますか？"
+      : "各STEPの処置時間を見ながら優先順位を変えるのですね。長い当直を途中で離れるときはどうすればよいですか？")
+    : (isDoctor
+      ? "10分で5時間分進むなら、処置時間まで含めて全床の優先順位を更新します。"
+      : "短い当直でも、全ベッドを見ながら優先順位を変え続けるのですね。");
+  const closingText = isSecret
+    ? (isDoctor
+      ? (mode.id === "full"
+        ? "10床を俯瞰し、優先順位を更新しながら朝まで安全に対応します。"
+        : "10床を俯瞰し、空床と急変リスクを先回りして管理します。")
+      : (mode.id === "full"
+        ? "10床の優先順位を更新し続け、朝までチームで対応します！"
+        : "10床を見渡し、赤い急変ゲージから落ち着いて対応します！"))
+    : isTertiary
+      ? (isDoctor
+        ? (mode.id === "full"
+          ? "ABCDEを反復し、チームと資源を先回りして動かします。"
+          : "蘇生と止血戦略を先行し、救命のボトルネックを潰します。")
+        : (mode.id === "full"
+          ? "ABCDEを反復し、長い当直でも一人で抱え込まずチームを呼びます！"
+          : "ABCDEに戻り、重症ならすぐ上級医と救命チームを呼びます！"))
+      : (isDoctor
+        ? (mode.id === "full"
+          ? "初療・転送・病床運用を並行し、朝まで安全に引き継ぎます。"
+          : "初療と転送判断を並行し、安全性を保って病床を回します。")
+        : (mode.id === "full"
+          ? "赤旗を見逃さず、優先順位を更新しながら朝まで診療します！"
+          : "赤旗を見逃さず、帰宅・入院・転送を基本どおり判断します！"));
+  const pointText = isSecret
+    ? "症例完遂で褒めポイント、急変で残念ポイント+2だ。"
+    : "症例完遂で褒めポイント、受入拒否・時間切れで残念ポイント+1、急変で+2だ。";
 
   return [
     {
@@ -155,86 +213,75 @@ const getTutorialScript = (levelId, modeId, hospitalId) => {
     },
     {
       speaker: playerId,
-      heading: isTertiary ? "重症患者への向き合い方" : isSecret ? "10床を全部ですか？" : "二次救急の役割",
+      heading: isTertiary ? "生命危機を見つける順番" : isSecret ? "10床をどう見ますか？" : "危険な患者の見分け方",
       text: isSecret
         ? (isDoctor
-          ? "10床へ自動収容ですか。受入操作に使っていた時間も、患者の再評価へ回す必要がありますね。"
-          : "院長、10床に患者さんが勝手に入ってくるのですか？　見落とさない方法を教えてください。")
+          ? "10床を俯瞰し、空床が出るたびに次の患者へ備えます。最優先は赤い急変ゲージの患者ですね。"
+          : "院長、10床を見落とさずに管理するには、どこから見ればよいですか？")
         : isTertiary
           ? (isDoctor
-            ? "了解しました。蘇生と診断、専門チーム招集を並行して進める前提で動きます。"
-            : "院長、高エネルギー外傷では、診断名を考える前に何から見ればよいですか？")
+            ? "外科・麻酔科・IVRなどは、どの時点で招集しますか？"
+            : "院長、高エネルギー外傷では、診断名より先に何を確認しますか？")
           : (isDoctor
-            ? "自院で完結できる患者と、高次搬送すべき患者を早期に分けるのが役割ですね。"
-            : "院長、よくある症状でも、帰宅と入院をどう見分ければよいですか？"),
+            ? "自院で抱えられないと判断したら、どの段階で転送を動かしますか？"
+            : "院長、よくある症状の中から、危険な患者をどう見分ければよいですか？"),
     },
     {
       speaker: "director",
       heading: `${hospital.shortTitle}での判断軸`,
       text: facilityLesson,
       tips: isSecret
-        ? ["10床を俯瞰", "空床へ自動収容", "優先順位を反復更新"]
+        ? ["赤い急変ゲージを優先", "処置中を再確認", "1床ごとに優先順位を更新"]
         : isTertiary
           ? ["ABCDEを優先", "蘇生と診断を並行", "チームを早期招集"]
-          : ["赤旗を見抜く", "入院か帰宅か", "必要なら安定化して転送"],
+          : ["バイタルと赤旗", "帰宅・入院・高次搬送", "不安定なら安定化と転送準備"],
     },
     {
       speaker: playerId,
-      heading: isSecret ? "搬送はどう受けますか？" : "救急隊から連絡が来たら？",
+      heading: isSecret ? "次の患者を見越す" : "救急隊から連絡が来たら",
       text: isSecret
         ? (isDoctor
-          ? "受入可否を選ばず、ベッドが空き次第すぐ診療開始ということですね。"
-          : "断る操作はなく、空いたベッドへ自動的に入るのですね。")
+          ? "空床を作る順番も病床運用の一部ですね。次の患者を見越して動きます。"
+          : "1床の診療が終われば、すぐ次の患者が入るつもりで動くんですね。")
         : (isDoctor
-          ? "受入要請から収容し、複数ベッドの緊急度を比較しながら動くわけですね。"
-          : "患者情報を見て、空いているベッドを選べばよいのですね。"),
+          ? "応答時間内に収容床を決め、受入後は全床の緊急度を見直す、という流れですね。"
+          : "救急隊から連絡が来たら、患者情報を確認して、空いているベッドを選ぶんですね。"),
     },
     {
       speaker: "director",
       heading: isSecret ? "断らない受入システム" : "救急隊からの受入要請",
       text: arrivalRule,
       tips: isSecret
-        ? ["受入拒否なし", "空床へ自動収容", "搬送間隔が短い"]
-        : ["空床を選んで収容", "受入拒否・時間切れは残念+1"],
+        ? ["受入操作なし", "空床へ自動収容", "全床を反復評価"]
+        : ["応答時間内に空床へ収容", "受入拒否・時間切れは残念+1"],
     },
     {
       speaker: "director",
       heading: "処置の選択と急変タイマー",
-      text: "各STEPで5つの選択肢から処置を選ぶ。処置には院内時間がかかり、現実の1秒で院内時間が30秒進む。誤った判断は処置時間を失ううえ、急変までの猶予が5分短くなる。患者が増えたりゲージが赤くなるとBGMも加速するが、焦らず診療を完遂しろ。",
-      tips: ["選択肢は5つ", "誤答で猶予−5分", "危険度に応じてBGM加速", "急変すると残念+2"],
+      text: `各STEPは5択だ。時計は現実の1秒で院内30秒進み、処置を選ぶと表示された所要時間も進む。誤答すると、その時間に加えて急変までの猶予が5分縮む。残り時間と全ベッドを見て選べ。${pointText}`,
+      tips: ["各STEPは5択", "誤答で急変猶予−5分", "急変は残念+2"],
     },
     {
       speaker: playerId,
-      heading: "院長メーターとは？",
-      text: isDoctor
-        ? `${hospital.shortTitle}でも、診療成績だけでなく病床運用を含めて評価されるのですね。`
-        : "画面上の「褒め」「残念」と、院長メーターは何を表しているのですか？",
+      heading: mode.id === "full" ? "長い当直の中断" : "短い当直の優先順位",
+      text: modeQuestion,
     },
     {
       speaker: "director",
-      heading: `${mode.title}のルール`,
-      text: `症例を完遂すれば褒めポイント、受入拒否や急変で残念ポイントが増える。その差が院長メーターだ。−5で当直終了、+5を超えると救急車が殺到するフィーバータイムに入る。${modeText}`,
+      heading: `院長メーターと${mode.title}`,
+      text: `${modeText} 院長メーターは「褒め−残念」だ。−5以下で当直終了、+6以上でFEVER。患者が増えたり、患者の急変ゲージが赤くなったり、FEVERに入ったりするとBGMも速くなる。`,
       tips: [
-        "スコア−5で終了",
-        "スコア+5超でFEVER",
+        "院長メーター−5以下で終了",
+        "院長メーター+6以上でFEVER",
         `${mode.description}・約${mode.realMinutes}分`,
       ],
     },
     {
       speaker: playerId,
       heading: "準備完了",
-      text: isDoctor
-        ? (isTertiary
-          ? "蘇生、診断、専門科連携を並行し、救命のボトルネックを先に潰します。"
-          : isSecret
-            ? "10床の優先順位を更新し続け、空床が出るたび次の患者を受けます。"
-            : "初療を進めながら、自院完結と高次搬送を早期に判断します。")
-        : (isTertiary
-          ? "ABCDEに戻り、重症ならすぐ上級医とチームを呼びます！"
-          : isSecret
-            ? "10床を見渡して、赤ゲージの患者さんから落ち着いて対応します！"
-            : "赤旗を見逃さず、帰宅・入院・転送を基本に沿って考えます！"),
-      tips: ["落ち着いて優先順位を判断", `${hospital.shortTitle}の役割を意識`],
+      text: closingText,
+      expression: "encouraging",
+      tips: ["生命危機と残り時間を優先", `${hospital.shortTitle}の役割を意識`],
     },
   ];
 };
@@ -1694,7 +1741,12 @@ function DirectorRushCutin({ cutin, rush }) {
   >
     <div className={`absolute inset-0 ${warning ? "bg-amber-950/35" : "bg-rose-950/45"}`} />
     <div className={`fx-pop relative flex w-full max-w-lg items-center gap-3 rounded-2xl border-2 p-3 shadow-2xl sm:gap-5 sm:p-5 ${tone}`}>
-      <CharacterAvatar character={director} active compact />
+      <CharacterAvatar
+        character={director}
+        expression={warning ? "default" : "encouraging"}
+        active
+        compact
+      />
       <div className="min-w-0 flex-1">
         <div className={`text-[10px] font-black tracking-[0.22em] ${warning ? "text-amber-300" : "text-rose-300"}`}>
           {warning ? "DIRECTOR WARNING" : "DIRECTOR ORDER"}
@@ -2204,7 +2256,12 @@ function TutorialStage({
       key={`${dialogue.speaker}-${step}`}
       className={`dialogue-in mt-5 flex items-end gap-3 ${isDirector ? "" : "flex-row-reverse"}`}
     >
-      <CharacterAvatar character={speaker} active compact />
+      <CharacterAvatar
+        character={speaker}
+        expression={dialogue.expression}
+        active
+        compact
+      />
       <div
         aria-live="polite"
         className={`relative flex-1 rounded-2xl border p-4 shadow-xl ${isDirector ? "border-amber-700/50 bg-amber-950/25 shadow-amber-950/30" : levelId === "doctor" ? "border-violet-700/50 bg-violet-950/25 shadow-violet-950/30" : "border-sky-700/50 bg-sky-950/25 shadow-sky-950/30"}`}
@@ -2247,10 +2304,12 @@ function TutorialStage({
 }
 function CharacterAvatar({
   character,
+  expression = "default",
   active = false,
   compact = false,
   mini = false,
 }) {
+  const image = character.images[expression] ?? character.images.default;
   return <div className={`shrink-0 text-center transition ${active ? "opacity-100" : "opacity-80"}`}>
     <div className={`relative overflow-hidden border-2 shadow-lg ${
       mini
@@ -2259,20 +2318,14 @@ function CharacterAvatar({
           ? "h-28 w-20 rounded-2xl sm:h-32 sm:w-24"
           : "h-32 w-24 rounded-2xl"
     } ${character.frameClass} ${active ? "ring-2 ring-white/10" : ""}`}>
-      {character.imageSrc ? (
-        <img
-          src={character.imageSrc}
-          alt={`${character.name}のキャラクター`}
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        <div className="flex h-full flex-col items-center justify-center">
-          <div className={`${mini ? "text-xl" : "text-4xl"} font-black ${character.textClass}`}>{character.initial}</div>
-          <div className={`${mini ? "mt-1 px-1 py-0.5 text-[6px]" : "mt-2 px-2 py-1 text-[8px]"} rounded bg-slate-950/70 font-mono tracking-wider text-slate-500`}>
-            仮画像
-          </div>
-        </div>
-      )}
+      <img
+        src={image.src}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        className="h-full w-full select-none object-cover"
+        style={{ objectPosition: image.objectPosition }}
+      />
     </div>
     <div className={`${mini ? "mt-1 text-[9px]" : "mt-1.5 text-[11px]"} font-black ${character.textClass}`}>{character.name}</div>
   </div>;
@@ -2537,6 +2590,9 @@ function DirectorMeter({ evaluation }) {
 }
 
 function ResultDialogue({ evaluation }) {
+  const expression = evaluation.fullComplete || ["S", "A"].includes(evaluation.rank)
+    ? "encouraging"
+    : "default";
   return (
     <section className={`mt-5 w-full max-w-xl rounded-2xl border p-4 shadow-2xl ${evaluation.panelClass}`}>
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -2555,7 +2611,12 @@ function ResultDialogue({ evaluation }) {
               className={`dialogue-in flex items-end gap-2.5 ${isDirector ? "" : "flex-row-reverse"}`}
               style={{ animationDelay: `${index * 0.08}s` }}
             >
-              <CharacterAvatar character={character} active mini />
+              <CharacterAvatar
+                character={character}
+                expression={expression}
+                active
+                mini
+              />
               <div className={`relative flex-1 rounded-2xl border px-3 py-2.5 ${
                 isDirector
                   ? "border-amber-700/50 bg-amber-950/35"
