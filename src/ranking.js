@@ -33,6 +33,20 @@ export const loadRankingName = () => {
   }
 };
 
+export const normalizeRankingName = (name) => (
+  typeof name === "string"
+    ? name.normalize("NFKC").replace(/\s+/gu, " ").trim()
+    : ""
+);
+
+export const isValidRankingName = (name) => {
+  const normalized = normalizeRankingName(name);
+  const length = Array.from(normalized).length;
+  return length >= 1
+    && length <= 12
+    && !/[\p{Cc}\p{Cf}]/u.test(normalized);
+};
+
 export const saveRankingName = (name) => {
   if (typeof window === "undefined") return;
   try {
