@@ -7,11 +7,18 @@ import {
 } from "./expandedCases";
 import EmergencyRoomBackground from "./EmergencyRoomBackground";
 import RankingPanel from "./RankingPanel";
+import { loadBgmPreference, saveBgmPreference } from "./audioSettings";
 import {
   isSecretUnlocked,
   loadEmergencyProgress,
   recordHospitalClear,
 } from "./progression";
+import {
+  isValidRankingName,
+  loadRankingName,
+  normalizeRankingName,
+  saveRankingName,
+} from "./ranking";
 import { clearSavedProgress, loadSavedProgress, saveProgress } from "./saveGame";
 import { useButtonSfx } from "./useButtonSfx";
 import { getGameplayMusicProfile, useGameplayBgm } from "./useGameplayBgm";
@@ -1211,6 +1218,7 @@ export const newGame = (
   modeId = "short",
   levelId = "student",
   hospitalId = "secondary",
+  settings = {},
 ) => {
   const mode = GAME_MODES[modeId] ?? GAME_MODES.short;
   const level = CASE_LEVELS[levelId] ?? CASE_LEVELS.student;
@@ -1223,6 +1231,8 @@ export const newGame = (
   levelTitle: level.title,
   hospitalId: hospital.id,
   hospitalTitle: hospital.title,
+  playerName: normalizeRankingName(settings.playerName),
+  bgmEnabled: settings.bgmEnabled !== false,
   bedCount: hospital.bedCount,
   shiftStartMin: mode.startMin,
   shiftSec: mode.shiftSec,
@@ -1434,21 +1444,33 @@ export default function NightShiftER() {
     return n;
   };
 
-  const start = (modeId, levelId, hospitalId) => {
-    gameplayMusic.start();
+  const start = (modeId, levelId, hospitalId, settings = {}) => {
+    if (settings.bgmEnabled !== false) gameplayMusic.start();
     if (modeId === "full") clearSavedProgress();
     setSaveError("");
-    setG(newGame(modeId, levelId, hospitalId));
+    setG(newGame(modeId, levelId, hospitalId, settings));
   };
-  const resumeSavedGame = (savedGame) => {
-    gameplayMusic.start();
+  const resumeSavedGame = (savedGame, settings = {}) => {
+    if (settings.bgmEnabled !== false) gameplayMusic.start();
     setSaveError("");
-    setG({ ...savedGame, phase: "play", fx: null, rushCutin: null, panicRush: savedGame.panicRush ?? null });
+    setG({
+      ...savedGame,
+      phase: "play",
+      playerName: normalizeRankingName(settings.playerName),
+      bgmEnabled: settings.bgmEnabled !== false,
+      fx: null,
+      rushCutin: null,
+      panicRush: savedGame.panicRush ?? null,
+    });
   };
   const retry = () => start(
     g.modeId ?? "short",
     g.levelId ?? "student",
     g.hospitalId ?? "secondary",
+    {
+      playerName: g.playerName ?? "",
+      bgmEnabled: g.bgmEnabled !== false,
+    },
   );
   const pause = () => {
     if (g.modeId === "full" && g.phase === "play") {
@@ -1457,9 +1479,15 @@ export default function NightShiftER() {
     }
   };
   const continueShift = () => {
-    gameplayMusic.resume();
+    if (g.bgmEnabled !== false) gameplayMusic.resume();
     setSaveError("");
     setG((s) => ({ ...s, phase: "play" }));
+  };
+  const toggleGameplayMusic = () => {
+    const nextEnabled = g.bgmEnabled === false;
+    saveBgmPreference(nextEnabled);
+    setG((s) => ({ ...s, bgmEnabled: nextEnabled }));
+    if (nextEnabled !== gameplayMusic.playing) gameplayMusic.toggle();
   };
   const saveAndReturn = () => {
     if (saveProgress(g)) {
@@ -1533,7 +1561,7 @@ export default function NightShiftER() {
             <span className="font-mono text-teal-700 text-xl font-bold tracking-wider">{fmtClock(g.t, g.shiftStartMin)}</span>
             <span className="text-slate-500 text-[10px] leading-tight">
               {g.levelTitle}・{HOSPITAL_MODES[g.hospitalId]?.shortTitle ?? "二次救急"}<br />
-              {g.modeTitle}・終了 {g.endClock}
+              {g.playerName ? `${g.playerName}・` : ""}{g.modeTitle}・終了 {g.endClock}
             </span>
           </div>
           <div className="flex items-center gap-3 text-sm">
@@ -1551,13 +1579,13 @@ export default function NightShiftER() {
           </div>
           <button
             type="button"
-            onClick={gameplayMusic.toggle}
+            onClick={toggleGameplayMusic}
             title={gameplayMusic.error || "プレイ中BGMの再生／停止"}
-            aria-pressed={gameplayMusic.playing}
-            aria-label={gameplayMusic.playing ? "プレイ中BGMを停止" : "プレイ中BGMを再生"}
-            className={`shrink-0 rounded-md border bg-white px-2 py-1 text-[10px] font-bold shadow-sm transition ${gameplayMusicProfile.redCount > 0 ? "border-rose-500/80 text-rose-600" : gameplayMusic.playing ? "border-sky-500 text-sky-700 hover:border-sky-600" : "border-slate-300 text-slate-500 hover:text-slate-700"}`}
+            aria-pressed={g.bgmEnabled !== false}
+            aria-label={g.bgmEnabled !== false ? "プレイ中BGM設定をOFF" : "プレイ中BGM設定をON"}
+            className={`shrink-0 rounded-md border bg-white px-2 py-1 text-[10px] font-bold shadow-sm transition ${gameplayMusicProfile.redCount > 0 ? "border-rose-500/80 text-rose-600" : g.bgmEnabled !== false ? "border-sky-500 text-sky-700 hover:border-sky-600" : "border-slate-300 text-slate-500 hover:text-slate-700"}`}
           >
-            {gameplayMusic.playing ? "♫ BGM ON" : "♫ BGM OFF"}
+            {g.bgmEnabled !== false ? "♫ BGM ON" : "♫ BGM OFF"}
           </button>
           {g.modeId === "full" && (
             <button
@@ -1813,7 +1841,10 @@ function ActionProgress({ action, t }) {
   return <div className="mt-4 mb-2"><div className="text-sm text-sky-300 mb-2">「{action.label}」を実施中…</div><div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-sky-500 transition-all" style={{ width: `${done * 100}%` }} /></div><div className="text-[10px] text-slate-500 mt-1 text-right">残り{Math.ceil((action.endsAt - t) / 60)}分(院内時間)</div></div>;
 }
 function TitleScreen({ onStart, onResume }) {
-  const [stage, setStage] = useState("role");
+  const [stage, setStage] = useState("setup");
+  const [playerName, setPlayerName] = useState(() => loadRankingName());
+  const [bgmEnabled, setBgmEnabled] = useState(() => loadBgmPreference());
+  const [setupStarting, setSetupStarting] = useState(false);
   const [levelId, setLevelId] = useState(null);
   const [hospitalId, setHospitalId] = useState(null);
   const [modeId, setModeId] = useState(null);
@@ -1849,7 +1880,36 @@ function TitleScreen({ onStart, onResume }) {
       minute: "2-digit",
     })
     : "";
+  const normalizedPlayerName = normalizeRankingName(playerName);
+  const playerNameValid = isValidRankingName(playerName);
 
+  const continueFromSetup = async (event) => {
+    event.preventDefault();
+    if (!playerNameValid || bgmEnabled === null || setupStarting) return;
+
+    setSetupStarting(true);
+    saveRankingName(normalizedPlayerName);
+    saveBgmPreference(bgmEnabled);
+    if (bgmEnabled !== bgmPlaying) await toggleBgm();
+    setStage("role");
+    setSetupStarting(false);
+  };
+  const chooseBgmSetting = (enabled) => {
+    if (bgmLoading || setupStarting) return;
+    setBgmEnabled(enabled);
+    saveBgmPreference(enabled);
+    if (enabled !== bgmPlaying) toggleBgm();
+  };
+  const toggleTitleBgm = () => {
+    const updatedEnabled = bgmEnabled !== true;
+    setBgmEnabled(updatedEnabled);
+    saveBgmPreference(updatedEnabled);
+    if (updatedEnabled !== bgmPlaying) toggleBgm();
+  };
+  const backToSetup = () => {
+    playMenuDecision();
+    setStage("setup");
+  };
   const chooseRole = (id) => {
     playMenuDecision();
     setLevelId(id);
@@ -1890,13 +1950,19 @@ function TitleScreen({ onStart, onResume }) {
   };
   const startSelectedShift = () => {
     playMenuDecision();
-    onStart(modeId, levelId, hospitalId);
+    onStart(modeId, levelId, hospitalId, {
+      playerName: normalizedPlayerName,
+      bgmEnabled,
+    });
   };
   const resume = () => {
     const latest = loadSavedProgress();
     if (latest) {
       playMenuDecision();
-      onResume(latest.game);
+      onResume(latest.game, {
+        playerName: normalizedPlayerName,
+        bgmEnabled,
+      });
     }
     else setSavedProgress(null);
   };
@@ -1907,21 +1973,25 @@ function TitleScreen({ onStart, onResume }) {
       <Ecg width={220} height={50} />
       <h1 className="text-2xl sm:text-3xl font-black tracking-[0.12em] mt-2">夜間当直シミュレーター</h1>
       <p className="text-emerald-400 font-mono text-xs mt-1 tracking-[0.3em]">NIGHT SHIFT ER</p>
-      <button
-        type="button"
-        aria-pressed={bgmPlaying}
-        aria-label={bgmPlaying ? "タイトルBGMを停止" : "タイトルBGMを再生"}
-        onClick={toggleBgm}
-        disabled={bgmLoading}
-        className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold transition active:scale-95 ${bgmPlaying ? "border-emerald-500/70 bg-emerald-950/50 text-emerald-300" : "border-slate-700 bg-slate-900 text-slate-400 hover:border-sky-500 hover:text-sky-300"}`}
-      >
-        <span className={bgmPlaying || bgmLoading ? "pulse-soft" : ""}>
-          {bgmPlaying ? "🔊" : "♪"}
-        </span>
-        {bgmLoading ? "読み込み中…" : bgmPlaying ? "BGM ON" : "BGMを再生"}
-        <span className="text-[9px] font-normal text-slate-500">PIANO + ECG</span>
-      </button>
-      {bgmError && <div className="mt-2 text-[10px] text-rose-300">{bgmError}</div>}
+      {stage !== "setup" && (
+        <>
+          <button
+            type="button"
+            aria-pressed={bgmEnabled === true}
+            aria-label={bgmEnabled === true ? "タイトルBGM設定をOFF" : "タイトルBGM設定をON"}
+            onClick={toggleTitleBgm}
+            disabled={bgmLoading}
+            className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold transition active:scale-95 ${bgmEnabled === true ? "border-emerald-500/70 bg-emerald-950/50 text-emerald-300" : "border-slate-700 bg-slate-900 text-slate-400 hover:border-sky-500 hover:text-sky-300"}`}
+          >
+            <span className={bgmPlaying || bgmLoading ? "pulse-soft" : ""}>
+              {bgmEnabled === true ? "🔊" : "♪"}
+            </span>
+            {bgmLoading ? "読み込み中…" : bgmEnabled === true ? "BGM ON" : "BGM OFF"}
+            <span className="text-[9px] font-normal text-slate-500">PIANO + ECG</span>
+          </button>
+          {bgmError && <div className="mt-2 text-[10px] text-rose-300">{bgmError}</div>}
+        </>
+      )}
       <a
         href="https://dova-s.jp/se/detail/162"
         target="_blank"
@@ -1932,8 +2002,100 @@ function TitleScreen({ onStart, onResume }) {
       </a>
     </div>
 
-    {stage === "role" ? (
+    {stage === "setup" ? (
+      <form onSubmit={continueFromSetup} className="mt-7 w-full max-w-md">
+        <div className="text-center">
+          <div className="font-mono text-[10px] tracking-[0.25em] text-emerald-400">START SETUP</div>
+          <h2 className="mt-2 text-xl font-black text-slate-100">名前とサウンドを設定</h2>
+          <p className="mt-2 text-xs leading-relaxed text-slate-500">
+            今夜の当直で使う名前と、BGMを流すか選んでください。
+          </p>
+        </div>
+
+        <label htmlFor="player-name" className="mt-6 block text-xs font-black text-slate-300">
+          プレイヤー名
+        </label>
+        <input
+          id="player-name"
+          name="playerName"
+          type="text"
+          value={playerName}
+          onChange={(event) => setPlayerName(event.target.value)}
+          maxLength={24}
+          required
+          autoComplete="nickname"
+          autoFocus
+          placeholder="例：さくら"
+          aria-describedby="player-name-help"
+          aria-invalid={playerName.length > 0 && !playerNameValid}
+          className={`mt-2 w-full rounded-xl border bg-slate-900 px-4 py-3 text-base font-bold text-slate-100 outline-none transition placeholder:text-slate-600 ${playerName.length > 0 && !playerNameValid ? "border-rose-500 focus:border-rose-400" : "border-slate-700 focus:border-emerald-500"}`}
+        />
+        <div
+          id="player-name-help"
+          aria-live="polite"
+          className={`mt-1.5 text-[10px] ${playerName.length > 0 && !playerNameValid ? "text-rose-300" : "text-slate-500"}`}
+        >
+          {playerName.length > 0 && !playerNameValid
+            ? "名前は空白だけを避け、12文字以内で入力してください。"
+            : "1〜12文字。ランキング送信時にもこの名前が入ります。"}
+        </div>
+
+        <fieldset className="mt-6">
+          <legend className="text-xs font-black text-slate-300">BGM</legend>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <label
+              className={`cursor-pointer rounded-xl border p-4 text-left transition active:scale-[0.98] focus-within:ring-2 focus-within:ring-emerald-300 ${bgmEnabled === true ? "border-emerald-400 bg-emerald-950/45 text-emerald-200 ring-2 ring-emerald-500/20" : "border-slate-700 bg-slate-900 text-slate-400 hover:border-emerald-600"} ${bgmLoading || setupStarting ? "cursor-wait opacity-60" : ""}`}
+            >
+              <input
+                type="radio"
+                name="bgmEnabled"
+                value="on"
+                checked={bgmEnabled === true}
+                onChange={() => chooseBgmSetting(true)}
+                disabled={bgmLoading || setupStarting}
+                required
+                className="sr-only"
+              />
+              <span className="block text-base font-black">🔊 BGM ON</span>
+              <span className="mt-1 block text-[10px] leading-relaxed opacity-75">タイトル・プレイ中とも再生</span>
+            </label>
+            <label
+              className={`cursor-pointer rounded-xl border p-4 text-left transition active:scale-[0.98] focus-within:ring-2 focus-within:ring-sky-300 ${bgmEnabled === false ? "border-sky-400 bg-sky-950/45 text-sky-200 ring-2 ring-sky-500/20" : "border-slate-700 bg-slate-900 text-slate-400 hover:border-sky-600"} ${bgmLoading || setupStarting ? "cursor-wait opacity-60" : ""}`}
+            >
+              <input
+                type="radio"
+                name="bgmEnabled"
+                value="off"
+                checked={bgmEnabled === false}
+                onChange={() => chooseBgmSetting(false)}
+                disabled={bgmLoading || setupStarting}
+                required
+                className="sr-only"
+              />
+              <span className="block text-base font-black">🔇 BGM OFF</span>
+              <span className="mt-1 block text-[10px] leading-relaxed opacity-75">BGMだけ停止・効果音は再生</span>
+            </label>
+          </div>
+        </fieldset>
+
+        {bgmError && <div className="mt-3 text-center text-[10px] text-rose-300">{bgmError}</div>}
+        <button
+          type="submit"
+          disabled={!playerNameValid || bgmEnabled === null || bgmLoading || setupStarting}
+          className="mt-6 w-full rounded-xl bg-emerald-600 px-4 py-3.5 text-sm font-black text-white shadow-lg shadow-emerald-950/30 transition hover:bg-emerald-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
+        >
+          {setupStarting || bgmLoading ? "準備中…" : "設定して進む"}
+        </button>
+      </form>
+    ) : stage === "role" ? (
       <div className="mt-7 w-full max-w-md">
+        <button
+          type="button"
+          onClick={backToSetup}
+          className="text-xs font-bold text-slate-500 transition hover:text-slate-300"
+        >
+          ← 名前・BGMを変更する
+        </button>
         <div className="text-center">
           <div className="font-mono text-[10px] tracking-[0.25em] text-sky-400">STEP 1 / 4</div>
           <h2 className="mt-2 text-xl font-black text-slate-100">
@@ -2648,6 +2810,11 @@ export function ResultScreen({ g, fired = false, onRetry, onHome }) {
   return <div className="flex min-h-screen flex-col items-center bg-[radial-gradient(circle_at_top,#172033_0%,#020617_48%)] px-4 py-8 text-slate-200 sm:px-6 sm:py-10">
     <GlobalStyles />
     <div className="flex flex-wrap items-center justify-center gap-2 text-[10px]">
+      {g.playerName && (
+        <span className="rounded-full border border-emerald-700 bg-emerald-950/50 px-3 py-1 font-bold text-emerald-300">
+          {g.playerName}
+        </span>
+      )}
       <span className="rounded-full border border-sky-800 bg-sky-950/50 px-3 py-1 font-bold text-sky-300">{g.levelTitle}・全120例</span>
       <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-slate-400">
         {HOSPITAL_MODES[g.hospitalId]?.title ?? "二次救急病院"}
@@ -2703,6 +2870,7 @@ export function ResultScreen({ g, fired = false, onRetry, onHome }) {
     </div>
     <RankingPanel
       result={{
+        playerName: g.playerName ?? "",
         levelId: g.levelId,
         hospitalId: g.hospitalId,
         modeId: g.modeId,

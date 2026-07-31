@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   createSubmissionId,
   fetchRankings,
+  isValidRankingName,
   loadRankingName,
+  normalizeRankingName,
   saveRankingName,
   submitRanking,
 } from "./ranking";
@@ -10,7 +12,9 @@ import {
 const formatScore = (score) => score > 0 ? `+${score}` : score === 0 ? "±0" : `${score}`;
 
 export default function RankingPanel({ result }) {
-  const [playerName, setPlayerName] = useState(loadRankingName);
+  const [playerName, setPlayerName] = useState(
+    () => result.playerName || loadRankingName(),
+  );
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -23,9 +27,8 @@ export default function RankingPanel({ result }) {
     hospitalId: result.hospitalId,
     modeId: result.modeId,
   }), [result.levelId, result.hospitalId, result.modeId]);
-  const normalizedName = playerName.normalize("NFKC").replace(/\s+/gu, " ").trim();
-  const validName = Array.from(normalizedName).length >= 1
-    && Array.from(normalizedName).length <= 12;
+  const normalizedName = normalizeRankingName(playerName);
+  const validName = isValidRankingName(playerName);
 
   useEffect(() => {
     const controller = new AbortController();
