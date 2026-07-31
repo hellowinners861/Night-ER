@@ -36,6 +36,9 @@ import {
 const TICK_MS = 100;
 const SEC_PER_TICK = 3;
 const INCOMING_WAIT = 300;
+const incomingRequestKey = (incoming) => (
+  incoming ? `${incoming.caseIdx}:${incoming.deadline}` : null
+);
 
 const GAME_MODES = {
   short: {
@@ -1254,6 +1257,8 @@ export default function NightShiftER() {
   const previousRedBedsRef = useRef([]);
   const lastSoundedFxRef = useRef(null);
   const lastSoundedRushCutinRef = useRef(null);
+  const lastSoundedIncomingRef = useRef(null);
+  const acceptedIncomingRef = useRef(null);
   const gameplayMusicProfile = getGameplayMusicProfile(g);
   const gameplayMusic = useGameplayBgm({
     phase: g.phase,
@@ -1264,6 +1269,9 @@ export default function NightShiftER() {
     playPatientWarning,
     playIcuWarning,
     playGoodDoctor,
+    playIncomingCall,
+    stopIncomingCall,
+    playBedAdmission,
   } = useButtonSfx();
   const { playRushSfx } = useRushSfx();
 
@@ -1308,6 +1316,22 @@ export default function NightShiftER() {
     if (g.fx.type === "crash") playIcuWarning();
     if (g.fx.type === "good") playGoodDoctor();
   }, [g.fx, g.phase, playGoodDoctor, playIcuWarning]);
+
+  useEffect(() => {
+    if (g.phase !== "play" || !g.incoming) {
+      stopIncomingCall();
+      lastSoundedIncomingRef.current = null;
+      if (!g.incoming) {
+        acceptedIncomingRef.current = null;
+      }
+      return;
+    }
+
+    const requestKey = incomingRequestKey(g.incoming);
+    if (lastSoundedIncomingRef.current === requestKey) return;
+    lastSoundedIncomingRef.current = requestKey;
+    playIncomingCall();
+  }, [g.incoming, g.phase, playIncomingCall, stopIncomingCall]);
 
   useEffect(() => {
     const cutin = g.rushCutin;
@@ -1506,24 +1530,35 @@ export default function NightShiftER() {
     setSaveError("");
     setG({ phase: "title" });
   };
-  const accept = (bedIdx) => setG((s) => {
-    if (!s.incoming || s.beds[bedIdx]) return s;
-    const c = (CASE_LEVELS[s.levelId] ?? CASE_LEVELS.student).cases[s.incoming.caseIdx];
-    const beds = [...s.beds];
-    beds[bedIdx] = createBed(c, s.t);
-    return { ...s, beds, incoming: null, focus: bedIdx };
-  });
-  const refuse = () => setG((s) => {
-    if (!s.incoming) return s;
-    const c = (CASE_LEVELS[s.levelId] ?? CASE_LEVELS.student).cases[s.incoming.caseIdx];
-    return {
-      ...s, incoming: null,
-      nextSpawnAt: s.t + (s.panicRush?.activated ? getRushSpawnDelay(s.hospitalId) : 450 + rand(300)),
-      bad: s.bad + 1,
-      stats: { ...s.stats, refused: s.stats.refused + 1 },
-      log: pushLog(s.log, `⛔ ${c.chief}の受け入れを断った(残念+1)`),
-    };
-  });
+  const accept = (bedIdx) => {
+    const requestKey = incomingRequestKey(g.incoming);
+    if (!requestKey || g.beds[bedIdx] || acceptedIncomingRef.current === requestKey) return;
+
+    acceptedIncomingRef.current = requestKey;
+    stopIncomingCall();
+    playBedAdmission();
+    setG((s) => {
+      if (incomingRequestKey(s.incoming) !== requestKey || s.beds[bedIdx]) return s;
+      const c = (CASE_LEVELS[s.levelId] ?? CASE_LEVELS.student).cases[s.incoming.caseIdx];
+      const beds = [...s.beds];
+      beds[bedIdx] = createBed(c, s.t);
+      return { ...s, beds, incoming: null, focus: bedIdx };
+    });
+  };
+  const refuse = () => {
+    if (g.incoming) stopIncomingCall();
+    setG((s) => {
+      if (!s.incoming) return s;
+      const c = (CASE_LEVELS[s.levelId] ?? CASE_LEVELS.student).cases[s.incoming.caseIdx];
+      return {
+        ...s, incoming: null,
+        nextSpawnAt: s.t + (s.panicRush?.activated ? getRushSpawnDelay(s.hospitalId) : 450 + rand(300)),
+        bad: s.bad + 1,
+        stats: { ...s.stats, refused: s.stats.refused + 1 },
+        log: pushLog(s.log, `⛔ ${c.chief}の受け入れを断った(残念+1)`),
+      };
+    });
+  };
   const choose = (bedIdx, optIdx) => {
     const bed = g.beds[bedIdx];
     if (!bed || bed.action || !bed.steps[bed.stepIdx]?.opts[optIdx]) return;

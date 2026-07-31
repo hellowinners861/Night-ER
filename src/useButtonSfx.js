@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 const SFX = {
   menuDecision: {
@@ -20,6 +20,14 @@ const SFX = {
   goodDoctor: {
     url: `${import.meta.env.BASE_URL}audio/success-good-doctor.mp3`,
     volume: 1,
+  },
+  incomingCall: {
+    url: `${import.meta.env.BASE_URL}audio/incoming-phone-ring.mp3`,
+    volume: 0.82,
+  },
+  bedAdmission: {
+    url: `${import.meta.env.BASE_URL}audio/bed-admission-confirm.mp3`,
+    volume: 0.95,
   },
 };
 
@@ -189,7 +197,7 @@ const getFallbackPool = (config) => {
 
 const playFallback = (config) => {
   const pool = getFallbackPool(config);
-  if (pool.length === 0) return;
+  if (pool.length === 0) return () => {};
 
   let audio = pool.find((candidate) => candidate.paused || candidate.ended);
   if (!audio && pool.length < FALLBACK_POOL_SIZE) {
@@ -203,53 +211,81 @@ const playFallback = (config) => {
   audio.play().catch(() => {
     // ブラウザ側で再生が拒否された場合も、ボタン操作自体は妨げない。
   });
+  return () => {
+    audio.pause();
+    audio.currentTime = 0;
+  };
 };
 
 const playDecoded = (config, decoded) => {
   const context = getPlaybackContext();
   if (!context) {
-    playFallback(config);
-    return;
+    return playFallback(config);
   }
 
+  let source = null;
+  let gain = null;
+  let fallbackStop = null;
+  let stopped = false;
+  const cleanup = () => {
+    source?.disconnect();
+    gain?.disconnect();
+    source = null;
+    gain = null;
+  };
+  const stop = () => {
+    stopped = true;
+    fallbackStop?.();
+    fallbackStop = null;
+    if (!source) return;
+    source.onended = null;
+    try {
+      source.stop();
+    } catch {
+      // 既に終了済みの場合は何もしない。
+    }
+    cleanup();
+  };
+  const useFallback = () => {
+    if (!stopped) fallbackStop = playFallback(config);
+  };
   const start = () => {
-    const source = context.createBufferSource();
-    const gain = context.createGain();
+    if (stopped) return;
+    source = context.createBufferSource();
+    gain = context.createGain();
     source.buffer = decoded.buffer;
     gain.gain.value = config.volume;
     source.connect(gain);
     gain.connect(context.destination);
-    source.onended = () => {
-      source.disconnect();
-      gain.disconnect();
-    };
+    source.onended = cleanup;
     source.start(0, decoded.startAt);
   };
 
   if (context.state === "running") {
     start();
-    return;
+    return stop;
   }
 
   void context.resume()
     .then(() => {
       if (context.state === "running") start();
-      else playFallback(config);
+      else useFallback();
     })
     .catch(() => {
-      playFallback(config);
+      useFallback();
     });
+  return stop;
 };
 
 const playOneShot = (config) => {
   const cached = decodedSfx.get(config.url);
   if (cached) {
-    playDecoded(config, cached);
-    return;
+    return playDecoded(config, cached);
   }
 
-  playFallback(config);
+  const stop = playFallback(config);
   void loadSfx(config);
+  return stop;
 };
 
 const primePlaybackContext = () => {
@@ -278,9 +314,16 @@ if (typeof window !== "undefined") {
 }
 
 export function useButtonSfx() {
+  const incomingStopRef = useRef(null);
+  const stopIncomingCall = useCallback(() => {
+    incomingStopRef.current?.();
+    incomingStopRef.current = null;
+  }, []);
+
   useEffect(() => {
     preloadAllSfx();
-  }, []);
+    return stopIncomingCall;
+  }, [stopIncomingCall]);
 
   const playMenuDecision = useCallback(() => {
     playOneShot(SFX.menuDecision);
@@ -302,11 +345,23 @@ export function useButtonSfx() {
     playOneShot(SFX.goodDoctor);
   }, []);
 
+  const playIncomingCall = useCallback(() => {
+    stopIncomingCall();
+    incomingStopRef.current = playOneShot(SFX.incomingCall);
+  }, [stopIncomingCall]);
+
+  const playBedAdmission = useCallback(() => {
+    playOneShot(SFX.bedAdmission);
+  }, []);
+
   return {
     playMenuDecision,
     playGameChoice,
     playPatientWarning,
     playIcuWarning,
     playGoodDoctor,
+    playIncomingCall,
+    stopIncomingCall,
+    playBedAdmission,
   };
 }
